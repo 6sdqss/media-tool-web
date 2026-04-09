@@ -5,6 +5,7 @@ import requests
 import time
 import shutil
 import tempfile
+import concurrent.futures  # Thêm thư viện xử lý đa luồng
 from pathlib import Path
 from PIL import Image
 import gdown
@@ -278,33 +279,65 @@ else:
                 if not valid_files:
                     st.error("⚠️ Không tìm thấy ảnh hợp lệ trong các thư mục đã nhập! Vui lòng kiểm tra lại đường dẫn.")
                 else:
-                    # 1. Lưu & Resize
-                    for i, (base_folder, file_path) in enumerate(valid_files):
-                        status_text.info(f"⏳ Đang xử lý: {file_path.name} ({i+1}/{len(valid_files)})")
-                        
+                    # 1. Lưu & Resize (ĐÃ NÂNG CẤP ĐA LUỒNG)
+                    status_text.info(f"⏳ Đang khởi động tiến trình Resize Đa luồng cho {len(valid_files)} ảnh...")
+                    
+                    def process_local_file(item):
+                        base_folder, file_path = item
                         # Tái tạo cấu trúc thư mục con để giữ nguyên hệ thống cây thư mục ban đầu
                         rel_path = file_path.relative_to(base_folder)
                         img_target = out_dir / base_folder.name / rel_path
                         img_target.parent.mkdir(parents=True, exist_ok=True)
-                        
                         try:
                             shutil.copy2(file_path, img_target)
                             resize_image(img_target, w, h)
                         except Exception as e:
                             print(f"Lỗi xử lý file {file_path}: {e}")
-                        
-                        progress_bar.progress((i + 1) / len(valid_files))
+
+                    processed_count = 0
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                        futures = [executor.submit(process_local_file, item) for item in valid_files]
+                        for future in concurrent.futures.as_completed(futures):
+                            processed_count += 1
+                            status_text.info(f"⏳ Đang xử lý: {processed_count}/{len(valid_files)} ảnh...")
+                            progress_bar.progress(processed_count / len(valid_files))
                     
-                    # 2. Upload (Nếu có cấu hình)
+                    # 2. Upload (ĐÃ NÂNG CẤP TẠO CẤU TRÚC THƯ MỤC TRÊN DRIVE)
                     if target_folder_id and drive_service:
-                        status_text.info("📤 Đang Upload lên Google Drive...")
+                        status_text.info("📤 Đang phân tích cấu trúc và Upload lên Google Drive...")
                         try:
-                            new_folder_id = create_drive_folder(drive_service, "Local_Resized_Images", target_folder_id)
-                            for img in out_dir.rglob("*.jpg"):
-                                upload_to_drive(drive_service, img, new_folder_id)
-                            st.success("✅ Upload thành công!")
+                            # Tạo một folder gốc cho mẻ upload này (tránh bị lẫn lộn nếu up nhiều lần)
+                            root_folder_name = f"Local_Resized_Images_{int(time.time())}"
+                            root_folder_id = create_drive_folder(drive_service, root_folder_name, target_folder_id)
+                            
+                            # Dictionary để cache ID của các thư mục đã tạo trên Drive (tránh tạo trùng)
+                            folder_cache = {"": root_folder_id, ".": root_folder_id}
+                            jpg_files = list(out_dir.rglob("*.jpg"))
+                            
+                            for idx, img in enumerate(jpg_files):
+                                # Lấy đường dẫn tương đối để biết nó nằm ở thư mục con nào
+                                rel_dir = img.parent.relative_to(out_dir)
+                                rel_dir_str = str(rel_dir)
+                                
+                                # Xây dựng cây thư mục trên Drive nếu chưa tồn tại
+                                if rel_dir_str not in folder_cache:
+                                    current_parent = root_folder_id
+                                    current_path = ""
+                                    for part in rel_dir.parts:
+                                        current_path = os.path.join(current_path, part) if current_path else part
+                                        if current_path not in folder_cache:
+                                            new_id = create_drive_folder(drive_service, part, current_parent)
+                                            folder_cache[current_path] = new_id
+                                        current_parent = folder_cache[current_path]
+                                
+                                # Upload file vào đúng thư mục con
+                                dest_folder_id = folder_cache[rel_dir_str]
+                                upload_to_drive(drive_service, img, dest_folder_id)
+                                status_text.info(f"📤 Đã upload {idx + 1}/{len(jpg_files)} ảnh...")
+                                
+                            st.success(f"✅ Upload thành công {len(jpg_files)} ảnh, giữ nguyên cấu trúc thư mục!")
                         except Exception as e:
-                            st.warning("⚠️ Quá trình Upload gặp lỗi, vui lòng lấy file qua nút tải ZIP bên dưới.")
+                            st.warning(f"⚠️ Quá trình Upload gặp lỗi: {e}. Vui lòng lấy file qua nút tải ZIP bên dưới.")
 
                     status_text.success("🎉 Hoàn tất toàn bộ ảnh Offline!")
                     
