@@ -30,7 +30,7 @@ WEB_OPTIONS = ["Thế Giới Di Động", "Điện Máy Xanh", "TopZone"]
 # ==========================================
 # HÀM LOGIC DÙNG CHUNG
 # ==========================================
-@st.cache_data(ttl=1) # Load lại file liên tục để lấy data mới
+@st.cache_data(ttl=1)
 def load_keywords():
     if os.path.exists(KEYWORD_FILE):
         try:
@@ -120,7 +120,7 @@ with tab1:
                         new_dict[kw] = lk
                 kw_data[web_selected] = new_dict
                 save_keywords(kw_data)
-                load_keywords.clear() # Xóa cache để update liền
+                load_keywords.clear()
                 st.toast("✅ Đã cập nhật database từ khóa!", icon="🎉")
 
     with col2:
@@ -139,13 +139,13 @@ with tab1:
                     selected_kw_dict = {str(r["Từ khóa"]).strip(): str(r["Link"]).strip() for _, r in active_kws.iterrows() if str(r["Từ khóa"]).strip() != "nan"}
 
                     anchors_map = {}
-                    anchor_counter = 0
+                    # BẢN FIX LỖI: Dùng Dictionary để tránh lỗi phạm vi biến (scope)
+                    anchor_state = {"counter": 0} 
 
                     def new_anchor_token(anchor_html):
-                        nonlocal anchor_counter
-                        token = f"[[ANCHOR_{anchor_counter}]]"
+                        token = f"[[ANCHOR_{anchor_state['counter']}]]"
                         anchors_map[token] = anchor_html
-                        anchor_counter += 1
+                        anchor_state["counter"] += 1
                         return token
 
                     kw_items = sorted(selected_kw_dict.items(), key=lambda x: len(x[0]), reverse=True)
