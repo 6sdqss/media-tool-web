@@ -243,15 +243,16 @@ if "Google Drive" in mode:
                     st.download_button("📥 TẢI DỰ PHÒNG TOÀN BỘ ẢNH (FILE ZIP)", f, file_name="Drive_Images_Done.zip", mime="application/zip", type="primary", use_container_width=True)
 
 else:
-    st.info("💡 Bấm nút Browse files, sau đó nhấn `Ctrl + A` để chọn hàng loạt ảnh.")
-    uploaded_files = st.file_uploader("Kéo thả hoặc tải nhiều ảnh lên", accept_multiple_files=True, type=['png', 'jpg', 'jpeg', 'webp'])
+    st.info("💡 Nhập đường dẫn các thư mục trên máy tính. Hệ thống sẽ tự động quét toàn bộ ảnh, bao gồm cả các thư mục con bên trong.")
+    local_dirs_input = st.text_area("📂 Đường dẫn thư mục nguồn (Mỗi đường dẫn 1 dòng):", placeholder="Ví dụ:\nD:\\HinhAnh\\San_Pham_A\nE:\\Project\\Thu_Muc_Con")
     upload_link = st.text_input("📤 Link Thư mục Drive ĐÍCH (Nếu muốn Auto Upload):", placeholder="Bỏ trống nếu chỉ muốn lấy file ZIP")
     
     drive_service = get_gdrive_service()
 
     if st.button("🚀 BẮT ĐẦU RESIZE LOCAL", type="primary", use_container_width=True):
-        if not uploaded_files:
-            st.error("⚠️ Bạn chưa tải ảnh nào lên!")
+        local_dirs = [d.strip() for d in local_dirs_input.splitlines() if d.strip()]
+        if not local_dirs:
+            st.error("⚠️ Bạn chưa nhập đường dẫn thư mục nào!")
         else:
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
@@ -262,28 +263,54 @@ else:
                 out_dir.mkdir(exist_ok=True)
                 target_folder_id, _ = extract_drive_id_and_type(upload_link) if upload_link else (None, None)
 
-                # 1. Lưu & Resize
-                for i, file in enumerate(uploaded_files):
-                    status_text.info(f"⏳ Đang xử lý: {file.name} ({i+1}/{len(uploaded_files)})")
-                    img_path = out_dir / file.name
-                    with open(img_path, "wb") as f: f.write(file.getbuffer())
-                    resize_image(img_path, w, h)
-                    progress_bar.progress((i + 1) / len(uploaded_files))
+                # Quét tìm ảnh trong các thư mục và thư mục con
+                valid_files = []
+                for d in local_dirs:
+                    folder_path = Path(d)
+                    if folder_path.exists() and folder_path.is_dir():
+                        for ext in ('*.png', '*.jpg', '*.jpeg', '*.webp', '*.PNG', '*.JPG', '*.JPEG', '*.WEBP'):
+                            for file_path in folder_path.rglob(ext):
+                                valid_files.append((folder_path, file_path))
                 
-                # 2. Upload (Nếu có cấu hình)
-                if target_folder_id and drive_service:
-                    status_text.info("📤 Đang Upload lên Google Drive...")
-                    try:
-                        new_folder_id = create_drive_folder(drive_service, "Local_Resized_Images", target_folder_id)
-                        for img in out_dir.rglob("*.jpg"):
-                            upload_to_drive(drive_service, img, new_folder_id)
-                        st.success("✅ Upload thành công!")
-                    except Exception as e:
-                        st.warning("⚠️ Quá trình Upload gặp lỗi, vui lòng lấy file qua nút tải ZIP bên dưới.")
+                # Lọc file trùng lặp
+                valid_files = list(set(valid_files))
 
-                status_text.success("🎉 Hoàn tất toàn bộ ảnh Offline!")
-                shutil.make_archive(temp_path / "Local_Images_Done", 'zip', temp_path)
-                st.balloons()
-                
-                with open(temp_path / "Local_Images_Done.zip", "rb") as f:
-                    st.download_button("📥 TẢI XUỐNG BẢN LƯU (FILE ZIP)", f, file_name="Local_Images_Done.zip", mime="application/zip", type="primary", use_container_width=True)
+                if not valid_files:
+                    st.error("⚠️ Không tìm thấy ảnh hợp lệ trong các thư mục đã nhập! Vui lòng kiểm tra lại đường dẫn.")
+                else:
+                    # 1. Lưu & Resize
+                    for i, (base_folder, file_path) in enumerate(valid_files):
+                        status_text.info(f"⏳ Đang xử lý: {file_path.name} ({i+1}/{len(valid_files)})")
+                        
+                        # Tái tạo cấu trúc thư mục con để giữ nguyên hệ thống cây thư mục ban đầu
+                        rel_path = file_path.relative_to(base_folder)
+                        img_target = out_dir / base_folder.name / rel_path
+                        img_target.parent.mkdir(parents=True, exist_ok=True)
+                        
+                        try:
+                            shutil.copy2(file_path, img_target)
+                            resize_image(img_target, w, h)
+                        except Exception as e:
+                            print(f"Lỗi xử lý file {file_path}: {e}")
+                        
+                        progress_bar.progress((i + 1) / len(valid_files))
+                    
+                    # 2. Upload (Nếu có cấu hình)
+                    if target_folder_id and drive_service:
+                        status_text.info("📤 Đang Upload lên Google Drive...")
+                        try:
+                            new_folder_id = create_drive_folder(drive_service, "Local_Resized_Images", target_folder_id)
+                            for img in out_dir.rglob("*.jpg"):
+                                upload_to_drive(drive_service, img, new_folder_id)
+                            st.success("✅ Upload thành công!")
+                        except Exception as e:
+                            st.warning("⚠️ Quá trình Upload gặp lỗi, vui lòng lấy file qua nút tải ZIP bên dưới.")
+
+                    status_text.success("🎉 Hoàn tất toàn bộ ảnh Offline!")
+                    
+                    # Nén đúng thư mục đã xử lý (để giải nén ra có sẵn cấu trúc thư mục con)
+                    shutil.make_archive(temp_path / "Local_Images_Done", 'zip', out_dir)
+                    st.balloons()
+                    
+                    with open(temp_path / "Local_Images_Done.zip", "rb") as f:
+                        st.download_button("📥 TẢI XUỐNG BẢN LƯU (FILE ZIP)", f, file_name="Local_Images_Done.zip", mime="application/zip", type="primary", use_container_width=True)
