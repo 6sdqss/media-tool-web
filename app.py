@@ -32,18 +32,20 @@ st.markdown("""
     
     /* Giao diện control box cho dễ nhìn hơn */
     .control-box {
-        background-color: #f0f2f6;
+        background-color: #f8f9fa;
         padding: 15px;
         border-radius: 10px;
+        margin-top: 10px;
         margin-bottom: 15px;
-        border: 1px solid #d1d5db;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
 </style>
 """, unsafe_allow_html=True)
 
 # Khởi tạo trạng thái điều khiển tải
 if 'download_status' not in st.session_state:
-    st.session_state.download_status = 'idle' # idle, running, paused, cancelled
+    st.session_state.download_status = 'idle'
 
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
@@ -168,29 +170,66 @@ def ignore_system_files(path: Path):
     return path.name.startswith("._") or path.name == ".DS_Store" or path.name.startswith("__MACOSX")
 
 # ==========================================
-# CÁC HÀM PHỤ CHO SCRAPING WEB (ĐÃ NÂNG CẤP COOKIES & REDIRECT)
+# DỮ LIỆU COOKIES MỚI NHẤT DO USER CUNG CẤP
 # ==========================================
 RAW_COOKIES = [
     {"domain": ".thegioididong.com", "name": "_ce.clock_data", "value": "-110%2C113.161.59.60%2C1%2C91e1a2a41c0741f7f47615ab9de2fb8a%2CChrome%2CVN"},
-    {"domain": ".thegioididong.com", "name": "_ce.s", "value": "v~10b349a1bfb597f2fbfafdd33af1d88e35768560~lcw~1775808302291~vir~returning~lva~1775788787457~vpv~198~v11ls~8496c620-34b3-11f1-b933-8983fd7f9723~v11.cs~453625~v11.s~8496c620-34b3-11f1-b933-8983fd7f9723~v11.vs~10b349a1bfb597f2fbfafdd33af1d88e35768560"},
+    {"domain": ".thegioididong.com", "name": "_ce.s", "value": "v~10b349a1bfb597f2fbfafdd33af1d88e35768560~lcw~1775808302291~vir~returning~lva~1775788787457~vpv~198~v11ls~8496c620-34b3-11f1-b933-8983fd7f9723~v11.cs~453625~v11.s~8496c620-34b3-11f1-b933-8983fd7f9723~v11.vs~10b349a1bfb597f2fbfafdd33af1d88e35768560~v11.fsvd~eyJub3RNb2RpZmllZFVybCI6Imh0dHBzOi8vd3d3LnRoZWdpb2lkaWRvbmcuY29tL3RhaS1uZ2hlL3RhaS1uZ2hlLWNodXAtdGFpLW1hcnNoYWxsLW1vbml0b3ItaWlpLWEtbi1jIiwidXJsIjoidGhlZ2lvaWRpZG9uZy5jb20vdGFpLW5naGUvdGFpLW5naGUtY2h1cC10YWktbWFyc2hhbGwtbW9uaXRvci1paWktYS1uLWMiLCJyZWYiOiJodHRwczovL3d3dy5nb29nbGUuY29tLyIsInV0bSI6W119~v11.sla~1775808105349~v11.wss~1775808105350~lcw~1775808302292"},
+    {"domain": ".thegioididong.com", "name": "_fbp", "value": "fb.1.1750172120680.10576193331080870"},
+    {"domain": ".thegioididong.com", "name": "_ga", "value": "GA1.1.1348144808.1750172118"},
+    {"domain": ".thegioididong.com", "name": "_ga_E7W6Q8BZ90", "value": "GS2.1.s1758018330$o6$g0$t1758018330$j60$l0$h0"},
+    {"domain": ".thegioididong.com", "name": "_ga_TLRZMSX5ME", "value": "GS2.1.s1775803580$o892$g1$t1775808302$j60$l0$h0"},
+    {"domain": ".thegioididong.com", "name": "_ga_X858TT9KEM", "value": "GS2.1.s1766389032$o6$g1$t1766389105$j60$l0$h464001430"},
+    {"domain": ".thegioididong.com", "name": "_ga_Y6Z4B3W3TT", "value": "GS2.1.s1775793057$o476$g1$t1775793593$j60$l0$h0"},
+    {"domain": ".thegioididong.com", "name": "_gcl_au", "value": "1.1.951433526.1773623686"},
+    {"domain": ".thegioididong.com", "name": "_gcl_aw", "value": "GCL.1773304098.CjwKCAjwyMnNBhBNEiwA-Kcgu6jgBzki0rXREjDFHSwEoPWodrIsjBX-zE1XjwpVnMkwaViycidKWRoCuBEQAvD_BwE"},
+    {"domain": ".thegioididong.com", "name": "_gcl_gs", "value": "2.1.k1$i1773304080$u252242892"},
+    {"domain": ".thegioididong.com", "name": "_gid", "value": "GA1.2.1144389127.1775793058"},
+    {"domain": ".thegioididong.com", "name": "_tt_enable_cookie", "value": "1"},
+    {"domain": ".thegioididong.com", "name": "_ttp", "value": "01JXZ66DPS5V7D673ED09Z7FBN_.tt.1"},
     {"domain": ".thegioididong.com", "name": "cebs", "value": "1"},
     {"domain": ".thegioididong.com", "name": "cebsp_", "value": "32"},
+    {"domain": ".thegioididong.com", "name": "DMX_Personal", "value": "%7B%22CustomerId%22%3A0%2C%22CustomerSex%22%3A-1%2C%22CustomerName%22%3Anull%2C%22CustomerPhone%22%3Anull%2C%22CustomerMail%22%3Anull%2C%22Lat%22%3A0.0%2C%22Lng%22%3A0.0%2C%22Address%22%3Anull%2C%22CurrentUrl%22%3Anull%2C%22ProvinceId%22%3A1027%2C%22ProvinceType%22%3Anull%2C%22ProvinceName%22%3A%22H%E1%BB%93%20Ch%C3%AD%20Minh%22%2C%22DistrictId%22%3A0%2C%22DistrictType%22%3Anull%2C%22DistrictName%22%3Anull%2C%22WardId%22%3A0%2C%22WardType%22%3Anull%2C%22WardName%22%3Anull%2C%22StoreId%22%3A0%2C%22CouponCode%22%3Anull%2C%22HasLocation%22%3Afalse%7D"},
     {"domain": ".thegioididong.com", "name": "mwgsp", "value": "1"},
+    {"domain": ".thegioididong.com", "name": "ph_phc_SwFSIEWXGyEFX8K1CHR0SXqFF1itXUusCCgGgvSGlEk_posthog", "value": "%7B%22distinct_id%22%3A%220199755b-8f94-7918-a216-9679988d9c04%22%2C%22%24sesid%22%3A%5B1775808304859%2C%22019d7624-3f97-7eca-a6d1-4b152f418dd7%22%2C1775803580310%5D%2C%22%24epp%22%3Atrue%2C%22%24initial_person_info%22%3A%7B%22r%22%3A%22%24direct%22%2C%22u%22%3A%22https%3A%2F%2Fwww.thegioididong.com%2Ftai-nghe%2Ftai-nghe-bluetooth-true-wireless-xiaomi-openwear-stereo-pro%22%7D%7D"},
+    {"domain": ".thegioididong.com", "name": "SEARCH_KW_HISTORY", "value": "ZwG9esByxoOFfI_kFUZaNPOWKUzgqS9SHWKKWuM%2F5CAbih3R_G9cs8fzL8Jl3f%2FY4x%2FNwQEDHKyw9fGPC%2FNhvTJtx43muPU3E%2FLZI70%2FyGS64JM%2FNuPKia2l48VAeU81W98U2c3NwLcX77BB8Y2TKENVVFvVP7pCt3VjnnuCfEkPQuYIgubw2YMp4XheWUbQhgq8Gll%2Fsw_tcIdW7krqfuMKplA9H0cxWbk9tH0vxg22cVu_fzYlPoSi9oChKlYVI4JssIVVpg1a33xl4DPLE47ZXVN2Qf_ZyGv2SFEehcWUWSKQL2VAbjf7VI7w6AiVxCdXa62xVF1dFh%2FSgwcTOD1%2Fo9jPLBU0VZmldgFaxN4iUhoTE4YJa8G41d8pGdNGePKiOWJ1gSNnixk3dXbj3dk0VcDfsa2GgCwryyXswJHMn3zK0qyM2blKSBflHnradCI7rUpbrmE3Q1iXbgVRFi6iGV_oA9r20iOh_estbrYHzX8syHZgu%2Fz7idqYVoz9dc1WK719h%2FPpKWyqH6R%2FEduUekkcNHE1y0czoxB9_mtQESzxhKa_bPydi4A7ubal0lJOmW_fp6y64CEj3quuL_RRyl3cyzomVXgkQr1oBTo-"},
+    {"domain": ".thegioididong.com", "name": "TGDDLOGINV2", "value": "A181C45CFED49ADDBE189501AA8C169AA4FD6166A2C485CE2B24C363E815D68515C62C31055A3339074FE19D1DF34C08EF9AFCCA325DBC520F50C42A1A85A41D1642F8422202EA5659DD9020B21094897069B6CADD71C32D0D82248861AE23B9"},
+    {"domain": ".thegioididong.com", "name": "ttcsid", "value": "1775803853079::3lKv1285ZpUB8x1rDkXu.854.1775808305853.0::0.4448148.4452155::3513689.8.60.332::2428013.8.200"},
+    {"domain": ".thegioididong.com", "name": "ttcsid_CANVQ2RC77UFDAKT9FD0", "value": "1775803853079::Y4L_Dd9_12xtkkjcbb5H.295.1775808305853.1"},
+    {"domain": ".www.thegioididong.com", "name": "_uidcms", "value": "9050220803447467022"},
+    {"domain": "www.thegioididong.com", "name": "__IP", "value": "1906391868"},
+    {"domain": "www.thegioididong.com", "name": "__R", "value": "3"},
+    {"domain": "www.thegioididong.com", "name": "__RC", "value": "5"},
+    {"domain": "www.thegioididong.com", "name": "__tb", "value": "0"},
+    {"domain": "www.thegioididong.com", "name": "__uif", "value": "__uid%3A9050220803447467022%7C__ui%3A1%252C5%7C__create%3A1750220803"},
+    {"domain": "www.thegioididong.com", "name": "_customerIdRecommend", "value": "7394e58f043a847e"},
     {"domain": "www.thegioididong.com", "name": "ASP.NET_SessionId", "value": "zgo0wxmkgvnqbqub0lkreuon"},
+    {"domain": "www.thegioididong.com", "name": "popup_banner_home", "value": "popup_banner_H_3days"},
     {"domain": "www.thegioididong.com", "name": "SvID", "value": "beline26122|adivM|adhi9"},
     {"domain": "www.thegioididong.com", "name": "TBMCookie_3209819802479625248", "value": "272331001775808103SbF4f4kGHIEXWQ8vk5fTCgPn/0Q="}
 ]
-
 TGDD_COOKIES_DICT = {c['name']: c['value'] for c in RAW_COOKIES}
 
 def resolve_redirect_url(url: str) -> str:
-    if "/sp-" in url or "/dtdd-" in url or "/may-tinh-bang-" in url:
-        try:
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-            response = requests.get(url, headers=headers, cookies=TGDD_COOKIES_DICT, allow_redirects=True, timeout=15)
-            return response.url
-        except:
-            pass
+    """Nâng cấp xử lý link sp-xxxx chuyển hướng sang link gốc"""
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        }
+        response = requests.get(url, headers=headers, cookies=TGDD_COOKIES_DICT, allow_redirects=True, timeout=15)
+        
+        # Nếu TGDD dùng thẻ meta để redirect nội bộ thay vì HTTP 301
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, "html.parser")
+            meta_refresh = soup.find("meta", attrs={"http-equiv": "refresh"})
+            if meta_refresh:
+                content = meta_refresh.get("content", "")
+                if "url=" in content.lower():
+                    redirect_url = content.split("url=")[-1].strip("'\"")
+                    return urljoin(url, redirect_url)
+        return response.url
+    except Exception as e:
+        print(f"Lỗi phân giải link: {e}")
     return url
 
 def clean_name(name: str) -> str:
@@ -295,20 +334,23 @@ st.write("")
 drive_service = get_gdrive_service()
 
 # ---------------------------------------------------------
-# GIAO DIỆN ĐIỀU KHIỂN CHUNG
+# GIAO DIỆN NÚT TẠM DỪNG / TIẾP TỤC (UI CẢI TIẾN)
 # ---------------------------------------------------------
 def render_control_buttons():
     st.markdown('<div class="control-box">', unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
-    if col1.button("⏸️ Tạm dừng", use_container_width=True, disabled=st.session_state.download_status != 'running'):
-        st.session_state.download_status = 'paused'
-        st.rerun()
-    if col2.button("▶️ Tiếp tục", use_container_width=True, disabled=st.session_state.download_status != 'paused'):
-        st.session_state.download_status = 'running'
-        st.rerun()
-    if col3.button("⏹️ Hủy bỏ", type="primary", use_container_width=True, disabled=st.session_state.download_status in ['idle', 'cancelled']):
-        st.session_state.download_status = 'cancelled'
-        st.rerun()
+    with col1:
+        if st.button("⏸️ Tạm dừng", use_container_width=True):
+            st.session_state.download_status = 'paused'
+            st.rerun()
+    with col2:
+        if st.button("▶️ Tiếp tục", use_container_width=True):
+            st.session_state.download_status = 'running'
+            st.rerun()
+    with col3:
+        if st.button("⏹️ Hủy bỏ", type="primary", use_container_width=True):
+            st.session_state.download_status = 'cancelled'
+            st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ---------------------------------------------------------
@@ -324,8 +366,6 @@ if "Google Drive" in mode:
     if upload_link and not drive_service:
         st.warning("⚠️ Hệ thống chưa kết nối API Upload Drive.")
 
-    render_control_buttons()
-
     if st.button("🚀 BẮT ĐẦU CHẠY", type="primary", use_container_width=True):
         st.session_state.download_status = 'running'
         links = [l.strip() for l in links_text.splitlines() if l.strip()]
@@ -335,6 +375,7 @@ if "Google Drive" in mode:
             st.error("⚠️ Vui lòng dán link cần tải!")
             st.session_state.download_status = 'idle'
         else:
+            render_control_buttons() # Hiện bộ nút điều khiển khi bắt đầu chạy
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
                 status_text = st.empty()
@@ -388,14 +429,13 @@ elif "máy tính" in mode or "Upload ZIP" in mode:
     uploaded_file = st.file_uploader("📦 Tải lên file ZIP hoặc RAR:", type=['zip', 'rar'])
     upload_link = st.text_input("📤 Link Thư mục Drive ĐÍCH:", placeholder="Bỏ trống nếu chỉ lấy file ZIP")
 
-    render_control_buttons()
-
     if st.button("🚀 BẮT ĐẦU RESIZE LOCAL", type="primary", use_container_width=True):
         st.session_state.download_status = 'running'
         if not uploaded_file:
             st.error("⚠️ Bạn chưa tải file nào lên!")
             st.session_state.download_status = 'idle'
         else:
+            render_control_buttons() # Hiện bộ nút điều khiển khi bắt đầu chạy
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
                 extract_path = temp_path / "Extracted"
@@ -480,7 +520,7 @@ elif "máy tính" in mode or "Upload ZIP" in mode:
 # MODE 3: WEB CRAWLER (TGDD / DMX)
 # ---------------------------------------------------------
 elif "Web" in mode:
-    st.info("💡 **HƯỚNG DẪN:** Dán link TGDD/DMX (kể cả link rút gọn sp-xxxx). Hệ thống tự phân tích cấu trúc màu và xử lý.")
+    st.info("💡 **HƯỚNG DẪN:** Dán link TGDD/DMX (hỗ trợ cả link rút gọn sp-xxxx). Hệ thống tự phân tích cấu trúc màu và xử lý.")
     
     if "web_scanned_data" not in st.session_state:
         st.session_state["web_scanned_data"] = []
@@ -508,7 +548,8 @@ elif "Web" in mode:
         
         selected_tasks = []
         for item in st.session_state["web_scanned_data"]:
-            st.markdown(f"**📦 {item['product_name']}** *(Link gốc: {item['real_link'].split('?')[0]})*")
+            # UI Fix: Đã bỏ phần hiển thị "(Link gốc: ...)" đi cho gọn gàng như yêu cầu
+            st.markdown(f"**📦 {item['product_name']}**")
             cols = st.columns(3)
             for idx, color in enumerate(item["colors"]):
                 with cols[idx % 3]:
@@ -519,14 +560,13 @@ elif "Web" in mode:
         st.markdown("### 📤 3. XỬ LÝ & UPLOAD")
         upload_link = st.text_input("Link Thư mục Drive ĐÍCH:", placeholder="Bỏ trống nếu chỉ lấy file ZIP", key="web_drive_input")
         
-        render_control_buttons()
-
         if st.button("🚀 BẮT ĐẦU TẢI & RESIZE", type="primary", use_container_width=True):
             st.session_state.download_status = 'running'
             if not selected_tasks:
                 st.error("⚠️ Bạn chưa chọn màu nào!")
                 st.session_state.download_status = 'idle'
             else:
+                render_control_buttons() # Hiện bộ nút điều khiển khi bắt đầu chạy
                 target_folder_id, _ = extract_drive_id_and_type(upload_link) if upload_link else (None, None)
                 
                 with tempfile.TemporaryDirectory() as temp_dir:
