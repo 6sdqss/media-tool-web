@@ -44,6 +44,10 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Khởi tạo trạng thái điều khiển tải
+if 'download_status' not in st.session_state:
+    st.session_state.download_status = 'idle'
+
 # ==========================================
 # HỆ THỐNG ĐĂNG NHẬP
 # ==========================================
@@ -75,7 +79,6 @@ with st.sidebar:
 def get_gdrive_service():
     """Hỗ trợ cả Streamlit Secrets (Cloud) và File Local"""
     try:
-        # 1. Ưu tiên đọc từ Streamlit Secrets nếu chạy trên Cloud
         if "gcp_service_account" in st.secrets:
             creds_info = st.secrets["gcp_service_account"]
             creds = service_account.Credentials.from_service_account_info(
@@ -85,7 +88,6 @@ def get_gdrive_service():
     except: pass
 
     try:
-        # 2. Đọc từ file credentials.json nếu chạy ở máy tính local
         if os.path.exists('credentials.json'):
             creds = service_account.Credentials.from_service_account_file(
                 'credentials.json', scopes=['https://www.googleapis.com/auth/drive']
@@ -139,7 +141,6 @@ def get_drive_name(file_id: str, kind: str):
     except: pass
     return file_id
 
-# [NÂNG CẤP]: Sử dụng nhân Gdown để vượt cảnh báo Virus quét file lớn của Drive thay vì dùng requests thuần
 def download_direct_file(file_id: str, save_folder: Path, drive_name: str):
     save_path = get_unique_path(save_folder / f"{drive_name}.jpg")
     try:
@@ -174,8 +175,14 @@ def resize_image(image_path: Path, width=None, height=None):
     except Exception as e: print(f"Lỗi resize: {e}")
 
 def ignore_system_files(path: Path):
-    """Bỏ qua các file rác của MacOS hoặc Windows khi giải nén ZIP"""
     return path.name.startswith("._") or path.name == ".DS_Store" or path.name.startswith("__MACOSX")
+
+def check_pause_cancel_state():
+    while st.session_state.download_status == 'paused':
+        time.sleep(1)
+    if st.session_state.download_status == 'cancelled':
+        return False
+    return True
 
 # ==========================================
 # CÁC HÀM PHỤ CHO SCRAPING WEB (CHẾ ĐỘ 3)
@@ -249,7 +256,6 @@ def get_gallery_image_urls(product_url):
         for img in img_tags:
             src = img.get("data-src") or img.get("src")
             if src and "750x500" in src:
-                # Xóa hậu tố 750x500 để lấy ảnh gốc độ phân giải cao nhất
                 original_url = re.sub(r"-750x500", "", urljoin(product_url, src))
                 img_urls.append(original_url)
         return list(set(img_urls))
@@ -276,7 +282,7 @@ st.write("")
 drive_service = get_gdrive_service()
 
 # ---------------------------------------------------------
-# MODE 1: GOOGLE DRIVE (NÂNG CẤP VƯỢT RÀO CHẶN QUYỀN TRUY CẬP)
+# MODE 1: GOOGLE DRIVE (NÂNG CẤP RULE MAX 7 ẢNH VÀ CHỐNG LỖI)
 # ---------------------------------------------------------
 if "Google Drive" in mode:
     st.markdown("### 📥 1. NGUỒN ẢNH (Dán link cần tải)")
@@ -289,61 +295,91 @@ if "Google Drive" in mode:
         st.warning("⚠️ Hệ thống chưa kết nối API Upload Drive. Ảnh sẽ được tải về dạng ZIP thay vì Upload tự động.")
 
     if st.button("🚀 BẮT ĐẦU CHẠY", type="primary", use_container_width=True):
+        st.session_state.download_status = 'running'
         links = [l.strip() for l in links_text.splitlines() if l.strip()]
         target_folder_id, _ = extract_drive_id_and_type(upload_link) if upload_link else (None, None)
 
         if not links:
             st.error("⚠️ Vui lòng dán link cần tải!")
+            st.session_state.download_status = 'idle'
         else:
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
+                # Dùng thư mục output riêng biệt để gói ZIP không bị lỗi
+                output_dir = temp_path / "Drive_Images_Resized"
+                output_dir.mkdir(exist_ok=True)
+                
                 status_text = st.empty()
                 progress_bar = st.progress(0)
                 
+                successful_links = 0 # Bộ đếm số link thành công
+                
                 for i, url in enumerate(links):
+                    if not check_pause_cancel_state(): break
                     file_id, kind = extract_drive_id_and_type(url)
                     if not file_id: continue
                     
                     status_text.info(f"⏳ Đang lấy thông tin bộ ảnh {i+1}/{len(links)}...")
                     drive_name = get_drive_name(file_id, kind)
-                    out_dir = temp_path / drive_name
+                    out_dir = output_dir / drive_name
                     out_dir.mkdir(parents=True, exist_ok=True)
 
-                    status_text.info(f"📥 Đang xử lý: **{drive_name}**...")
+                    status_text.info(f"📥 Đang tải và xử lý: **{drive_name}**...")
                     
-                    # [NÂNG CẤP]: Xử lý bọc lỗi chặn quyền truy cập Gdown
                     try:
                         if kind == "folder":
                             folder_url = f"https://drive.google.com/drive/folders/{file_id}"
                             success = False
                             
-                            # Xoay vòng chiến thuật cookie để lách hệ thống chống Spam của Drive
                             for use_cookie in [False, True, False]:
                                 try:
                                     gdown.download_folder(url=folder_url, output=str(out_dir), quiet=True, use_cookies=use_cookie)
-                                    if any(out_dir.iterdir()): # Xác nhận có file tải về
+                                    if any(out_dir.iterdir()): 
                                         success = True
                                         break
                                 except Exception:
-                                    time.sleep(2) # Nghỉ nhịp trước khi thử lại
+                                    time.sleep(2)
                                     
                             if not success:
-                                st.error(f"❌ Google chặn Web tải tự động thư mục '{drive_name}'.\n💡 Khắc phục: Mở link trên trình duyệt, tải file ZIP về máy tính, sau đó dùng **Chế độ 2** (Tải ảnh từ máy tính) để xử lý.")
-                                continue # Bỏ qua link này để chạy tiếp link sau
+                                st.error(f"❌ Google chặn tải thư mục '{drive_name}'. Bỏ qua link này.")
+                                shutil.rmtree(out_dir, ignore_errors=True) # Xóa thư mục rỗng
+                                continue # Bỏ qua lỗi và chạy tiếp link sau
                             
-                            # Đã tải thành công -> Tiến hành Resize
-                            for img in [f for f in out_dir.rglob("*.*") if f.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp"]]:
+                            # [LUẬT MỚI]: Tối đa 7 hình đầu tiên để chống spam
+                            all_images = [f for f in out_dir.rglob("*.*") if f.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp"]]
+                            if len(all_images) > 7:
+                                # Sắp xếp theo tên để lấy thống nhất 7 hình đầu tiên
+                                all_images = sorted(all_images, key=lambda x: x.name)
+                                keep_images = all_images[:7]
+                                delete_images = all_images[7:]
+                                
+                                # Xóa ngay các hình thừa để không cho vào file ZIP
+                                for f in delete_images:
+                                    try: f.unlink()
+                                    except: pass
+                                
+                                st.toast(f"Đã giới hạn lấy 7 hình đầu tiên cho thư mục '{drive_name}' để tránh spam.", icon="⚠️")
+                                images_to_process = keep_images
+                            else:
+                                images_to_process = all_images
+                            
+                            # Xử lý Resize
+                            for img in images_to_process:
                                 resize_image(img, w, h)
                         else:
                             file_path = download_direct_file(file_id, out_dir, drive_name)
                             if file_path and file_path.exists():
                                 resize_image(file_path, w, h)
+                                
+                        successful_links += 1 # Ghi nhận 1 link đã xử lý thành công
+                        
                     except Exception as e:
-                        st.warning(f"⚠️ Bỏ qua tải '{drive_name}' do lỗi không xác định: {e}")
+                        st.warning(f"⚠️ Bỏ qua tải '{drive_name}' do lỗi: {e}")
+                        shutil.rmtree(out_dir, ignore_errors=True)
                         continue 
                     
-                    # --- XỬ LÝ UPLOAD ---
-                    if target_folder_id and drive_service:
+                    # --- XỬ LÝ UPLOAD ĐỐI VỚI LINK THÀNH CÔNG ---
+                    if target_folder_id and drive_service and check_pause_cancel_state():
                         status_text.info(f"📤 Đang Upload **{drive_name}** lên Drive đích...")
                         try:
                             new_folder_id = create_drive_folder(drive_service, drive_name, target_folder_id)
@@ -351,17 +387,29 @@ if "Google Drive" in mode:
                                 upload_to_drive(drive_service, img, new_folder_id)
                             st.success(f"✅ Đã Upload xong: {drive_name}")
                         except Exception as e:
-                            st.warning(f"⚠️ Bỏ qua upload '{drive_name}'. Có thể thư mục đích chưa mở quyền Chỉnh Sửa.")
+                            st.warning(f"⚠️ Lỗi upload '{drive_name}'.")
 
                     progress_bar.progress((i+1) / len(links))
-                    if i < len(links) - 1: time.sleep(3) # Nghỉ nhịp giữa các link để chống spam
+                    if i < len(links) - 1: time.sleep(3) 
                 
-                status_text.success("🎉 HOÀN TẤT TOÀN BỘ TIẾN TRÌNH!")
-                shutil.make_archive(temp_path / "Drive_Images_Done", 'zip', temp_path)
-                st.balloons()
+                # --- XỬ LÝ BƯỚC CUỐI CÙNG (DÙ CÓ LỖI VẪN CHO TẢI VỀ) ---
+                if successful_links > 0 or st.session_state.download_status == 'cancelled':
+                    if st.session_state.download_status == 'cancelled':
+                        status_text.warning("🚫 Đã hủy quá trình tải! Những file đã xử lý thành công vẫn có thể tải về bên dưới.")
+                    else:
+                        status_text.success("🎉 HOÀN TẤT! Vui lòng tải file thành công bên dưới.")
+                    
+                    # Chỉ nén thư mục Output chứa các file thành công
+                    shutil.make_archive(temp_path / "Drive_Images_Done", 'zip', output_dir)
+                    st.balloons()
+                    
+                    if os.path.exists(temp_path / "Drive_Images_Done.zip"):
+                        with open(temp_path / "Drive_Images_Done.zip", "rb") as f:
+                            st.download_button("📥 TẢI XUỐNG CÁC FILE THÀNH CÔNG (ZIP)", f, file_name="Drive_Images_Done.zip", mime="application/zip", type="primary", use_container_width=True)
+                else:
+                    status_text.error("❌ Tất cả các link đều bị lỗi truy cập hoặc bị Google chặn. Không có file nào được tải.")
                 
-                with open(temp_path / "Drive_Images_Done.zip", "rb") as f:
-                    st.download_button("📥 TẢI DỰ PHÒNG TOÀN BỘ ẢNH (FILE ZIP)", f, file_name="Drive_Images_Done.zip", mime="application/zip", type="primary", use_container_width=True)
+                st.session_state.download_status = 'idle'
 
 # ---------------------------------------------------------
 # MODE 2: LOCAL PC (CHUẨN WEB APP BẰNG FILE ZIP)
