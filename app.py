@@ -8,6 +8,7 @@ import tempfile
 import zipfile
 import json
 import concurrent.futures
+import threading
 from pathlib import Path
 from PIL import Image
 import gdown
@@ -30,6 +31,7 @@ st.markdown("""
     footer {visibility: hidden;}
     .block-container { padding-top: 2rem; padding-bottom: 2rem; }
     
+    /* Giao diện control box cho dễ nhìn hơn */
     .control-box {
         background-color: #f8f9fa;
         padding: 15px;
@@ -42,6 +44,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Khởi tạo trạng thái điều khiển tải
 if 'download_status' not in st.session_state:
     st.session_state.download_status = 'idle'
 
@@ -76,6 +79,7 @@ def get_gdrive_service():
             )
             return build('drive', 'v3', credentials=creds)
     except: pass
+
     try:
         if os.path.exists('credentials.json'):
             creds = service_account.Credentials.from_service_account_file(
@@ -129,9 +133,10 @@ def get_drive_name(file_id: str, kind: str):
 def download_direct_file(file_id: str, save_folder: Path, drive_name: str):
     base_url = f"https://drive.google.com/uc?export=download&id={file_id}"
     session = requests.Session()
-    response = session.get(base_url, stream=True, timeout=10)
+    response = session.get(base_url, stream=True, timeout=15)
     confirm_token = next((v for k, v in response.cookies.items() if k.startswith("download_warning")), None)
-    if confirm_token: response = session.get(base_url + f"&confirm={confirm_token}", stream=True, timeout=10)
+    if confirm_token: response = session.get(base_url + f"&confirm={confirm_token}", stream=True, timeout=15)
+    
     save_path = get_unique_path(save_folder / f"{drive_name}.jpg")
     with open(save_path, "wb") as f:
         for chunk in response.iter_content(32768):
@@ -165,6 +170,9 @@ def resize_image(image_path: Path, width=None, height=None):
 def ignore_system_files(path: Path):
     return path.name.startswith("._") or path.name == ".DS_Store" or path.name.startswith("__MACOSX")
 
+# ==========================================
+# DỮ LIỆU COOKIES MỚI NHẤT
+# ==========================================
 RAW_COOKIES = [
     {"domain": ".thegioididong.com", "name": "_ce.clock_data", "value": "-110%2C113.161.59.60%2C1%2C91e1a2a41c0741f7f47615ab9de2fb8a%2CChrome%2CVN"},
     {"domain": ".thegioididong.com", "name": "_ce.s", "value": "v~10b349a1bfb597f2fbfafdd33af1d88e35768560~lcw~1775808302291~vir~returning~lva~1775788787457~vpv~198~v11ls~8496c620-34b3-11f1-b933-8983fd7f9723~v11.cs~453625~v11.s~8496c620-34b3-11f1-b933-8983fd7f9723~v11.vs~10b349a1bfb597f2fbfafdd33af1d88e35768560"},
@@ -181,7 +189,7 @@ TGDD_COOKIES_DICT = {c['name']: c['value'] for c in RAW_COOKIES}
 def resolve_redirect_url(url: str) -> str:
     if "/sp-" in url or "/dtdd-" in url or "/may-tinh-bang-" in url:
         try:
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
             response = requests.get(url, headers=headers, cookies=TGDD_COOKIES_DICT, allow_redirects=True, timeout=15)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, "html.parser")
@@ -302,7 +310,7 @@ def render_control_buttons():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# MODE 1: GOOGLE DRIVE (ĐÃ FIX LỖI GDOWN VÀ CHẶN)
+# MODE 1: GOOGLE DRIVE (ĐÃ NÂNG CẤP ĐA LUỒNG & BÁO LỖI)
 # ---------------------------------------------------------
 if "Google Drive" in mode:
     st.markdown("### 📥 1. NGUỒN ẢNH (Dán link cần tải)")
@@ -331,7 +339,9 @@ if "Google Drive" in mode:
                 for i, url in enumerate(links):
                     if not check_pause_cancel_state(): break
                     file_id, kind = extract_drive_id_and_type(url)
-                    if not file_id: continue
+                    if not file_id: 
+                        st.warning(f"⚠️ Link không hợp lệ: {url}")
+                        continue
                     
                     status_text.info(f"⏳ Đang lấy thông tin bộ ảnh {i+1}/{len(links)}...")
                     drive_name = get_drive_name(file_id, kind)
@@ -340,33 +350,61 @@ if "Google Drive" in mode:
 
                     try:
                         if kind == "folder":
-                            # Cơ chế Retry vượt rào Gdown Google chặn Rate limit
+                            # Vượt rào tải folder (bắt buộc tuần tự để không bị ban IP)
                             success = False
                             for attempt in range(3):
                                 try:
                                     gdown.download_folder(id=file_id, output=str(out_dir), quiet=True, use_cookies=(attempt == 1))
                                     success = True
                                     break
-                                except:
+                                except Exception as e:
                                     time.sleep(4)
                             if not success:
-                                st.warning(f"⚠️ Drive tạm thời chặn tải thư mục '{drive_name}'. Bỏ qua file này.")
+                                st.error(f"❌ Drive chặn tải thư mục '{drive_name}' do tải quá nhiều. Vui lòng thử lại sau.")
                                 continue
                             
-                            for img in [f for f in out_dir.rglob("*.*") if f.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp"]]:
-                                resize_image(img, w, h)
+                            images_to_process = [f for f in out_dir.rglob("*.*") if f.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp"]]
+                            
+                            # XỬ LÝ RESIZE ĐA LUỒNG SIÊU TỐC CHO MODE 1
+                            if images_to_process:
+                                status_text.info(f"⚡ Đang Resize đa luồng {len(images_to_process)} ảnh của {drive_name}...")
+                                def resize_worker(img):
+                                    if check_pause_cancel_state(): resize_image(img, w, h)
+                                
+                                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                                    futures = [executor.submit(resize_worker, img) for img in images_to_process]
+                                    for future in concurrent.futures.as_completed(futures):
+                                        if not check_pause_cancel_state(): break
                         else:
                             file_path = download_direct_file(file_id, out_dir, drive_name)
                             resize_image(file_path, w, h)
-                    except: continue
+                    except Exception as e:
+                        st.error(f"❌ Lỗi tải link {url}: {e}")
+                        continue
                     
+                    # XỬ LÝ UPLOAD ĐA LUỒNG CHO MODE 1
                     if target_folder_id and drive_service and check_pause_cancel_state():
-                        status_text.info(f"📤 Đang Upload **{drive_name}** lên Drive đích...")
+                        status_text.info(f"📤 Đang Upload đa luồng **{drive_name}** lên Drive đích...")
                         try:
                             new_folder_id = create_drive_folder(drive_service, drive_name, target_folder_id)
-                            for img in out_dir.rglob("*.jpg"):
-                                upload_to_drive(drive_service, img, new_folder_id)
-                        except: pass
+                            jpg_files = list(out_dir.rglob("*.jpg"))
+                            
+                            def upload_worker(img):
+                                if check_pause_cancel_state():
+                                    upload_to_drive(drive_service, img, new_folder_id)
+                            
+                            uploaded_count = 0
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                                futures = [executor.submit(upload_worker, img) for img in jpg_files]
+                                for future in concurrent.futures.as_completed(futures):
+                                    if not check_pause_cancel_state(): break
+                                    uploaded_count += 1
+                                    status_text.info(f"📤 Đã upload {uploaded_count}/{len(jpg_files)} ảnh của {drive_name}...")
+                                    
+                            st.success(f"✅ Đã Upload xong: {drive_name}")
+                        except Exception as e:
+                            st.warning(f"⚠️ Lỗi upload '{drive_name}': {e}")
+
                     progress_bar.progress((i+1) / len(links))
                 
                 if st.session_state.download_status == 'cancelled':
@@ -473,7 +511,7 @@ elif "máy tính" in mode or "Upload ZIP" in mode:
                 st.session_state.download_status = 'idle'
 
 # ---------------------------------------------------------
-# MODE 3: WEB CRAWLER (TGDD / DMX) - ĐA LUỒNG & FIX TRÙNG KEY
+# MODE 3: WEB CRAWLER (TGDD / DMX) 
 # ---------------------------------------------------------
 elif "Web" in mode:
     st.info("💡 **HƯỚNG DẪN:** Dán link TGDD/DMX (kể cả link rút gọn). Hệ thống tự phân tích cấu trúc màu và xử lý siêu tốc.")
@@ -491,14 +529,12 @@ elif "Web" in mode:
             with st.spinner("Đang phân tích link siêu tốc..."):
                 scanned_data = []
                 
-                # Hàm Worker Quét thông tin
                 def scan_url_worker(link):
                     real_link = resolve_redirect_url(link)
                     name = get_item_name(real_link)
                     colors = get_color_links_and_names(real_link)
                     return {"original_link": link, "real_link": real_link, "product_name": name, "colors": colors}
 
-                # Đẩy tốc độ quét lên bằng Multithreading
                 with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                     futures = [executor.submit(scan_url_worker, l) for l in links]
                     for future in concurrent.futures.as_completed(futures):
@@ -514,13 +550,11 @@ elif "Web" in mode:
         st.markdown("### 🎨 2. CHỌN MÀU CẦN TẢI")
         
         selected_tasks = []
-        # Giải quyết lỗi DuplicateElementKey bằng cách chèn idx_item vào Key
         for idx_item, item in enumerate(st.session_state["web_scanned_data"]):
             st.markdown(f"**📦 {item['product_name']}**")
             cols = st.columns(3)
             for idx_color, color in enumerate(item["colors"]):
                 with cols[idx_color % 3]:
-                    # Unique Key: Bám theo index sản phẩm + tên màu
                     if st.checkbox(color["name"], value=True, key=f"cb_{idx_item}_{item['original_link']}_{color['name']}"):
                         selected_tasks.append({"product_name": item["product_name"], "color_name": color["name"], "link": color["link"]})
         
@@ -546,7 +580,6 @@ elif "Web" in mode:
                     progress_bar = st.progress(0)
                     total_tasks = len(selected_tasks)
 
-                    # Hàm Worker tải và Resize ảnh con
                     def process_image_url(img_url, color_dir, headers):
                         if not check_pause_cancel_state(): return
                         try:
@@ -568,7 +601,6 @@ elif "Web" in mode:
                         img_urls = get_gallery_image_urls(c_link)
                         headers = {"User-Agent": "Mozilla/5.0"}
                         
-                        # Tải đa luồng từng bức ảnh bên trong thư mục Màu
                         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                             futures = [executor.submit(process_image_url, url, color_dir, headers) for url in img_urls]
                             concurrent.futures.wait(futures)
