@@ -23,8 +23,20 @@ st.set_page_config(page_title="Hệ thống Resize & Auto Upload", layout="cente
 
 st.markdown("""
 <style>
+    /* Nâng cấp giao diện nút bấm */
     div.stButton > button:first-child { border-radius: 8px; font-weight: 600; transition: all 0.3s ease; height: 45px; }
     div.stButton > button:first-child:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+    
+    /* ẨN MENU VÀ GITHUB ICON CỦA STREAMLIT */
+    #MainMenu {visibility: hidden;} /* Ẩn menu hamburger */
+    header {visibility: hidden;} /* Ẩn thanh header chứa nút GitHub/Deploy */
+    footer {visibility: hidden;} /* Ẩn footer "Made with Streamlit" */
+    
+    /* Khoảng trống bù lại khi ẩn header để giao diện không bị đẩy lên quá cao */
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
