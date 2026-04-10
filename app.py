@@ -139,17 +139,14 @@ def get_drive_name(file_id: str, kind: str):
     except: pass
     return file_id
 
+# [NÂNG CẤP]: Sử dụng nhân Gdown để vượt cảnh báo Virus quét file lớn của Drive thay vì dùng requests thuần
 def download_direct_file(file_id: str, save_folder: Path, drive_name: str):
-    base_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-    session = requests.Session()
-    response = session.get(base_url, stream=True, timeout=10)
-    confirm_token = next((v for k, v in response.cookies.items() if k.startswith("download_warning")), None)
-    if confirm_token: response = session.get(base_url + f"&confirm={confirm_token}", stream=True, timeout=10)
-    
     save_path = get_unique_path(save_folder / f"{drive_name}.jpg")
-    with open(save_path, "wb") as f:
-        for chunk in response.iter_content(32768):
-            if chunk: f.write(chunk)
+    try:
+        url = f'https://drive.google.com/uc?id={file_id}'
+        gdown.download(url, str(save_path), quiet=True, fuzzy=True)
+    except Exception as e:
+        print(f"Lỗi tải file trực tiếp: {e}")
     return save_path
 
 def resize_image(image_path: Path, width=None, height=None):
@@ -265,7 +262,6 @@ def get_gallery_image_urls(product_url):
 st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>📥 Tool Resize & Auto Upload Pro</h1>", unsafe_allow_html=True)
 
 with st.container(border=True):
-    # --- ĐÃ THÊM CHẾ ĐỘ 3 VÀO RADIO BUTTON ---
     mode = st.radio("Chế độ:", ["🌐 Tải từ Google Drive", "💻 Tải ảnh từ máy tính (Upload ZIP)", "🛒 Tải từ Web (TGDD / DMX)"], horizontal=True)
     
     size_options = {
@@ -280,7 +276,7 @@ st.write("")
 drive_service = get_gdrive_service()
 
 # ---------------------------------------------------------
-# MODE 1: GOOGLE DRIVE (Giữ nguyên luồng xử lý ổn định)
+# MODE 1: GOOGLE DRIVE (NÂNG CẤP VƯỢT RÀO CHẶN QUYỀN TRUY CẬP)
 # ---------------------------------------------------------
 if "Google Drive" in mode:
     st.markdown("### 📥 1. NGUỒN ẢNH (Dán link cần tải)")
@@ -315,18 +311,38 @@ if "Google Drive" in mode:
 
                     status_text.info(f"📥 Đang xử lý: **{drive_name}**...")
                     
+                    # [NÂNG CẤP]: Xử lý bọc lỗi chặn quyền truy cập Gdown
                     try:
                         if kind == "folder":
-                            gdown.download_folder(id=file_id, output=str(out_dir), quiet=True, use_cookies=False)
+                            folder_url = f"https://drive.google.com/drive/folders/{file_id}"
+                            success = False
+                            
+                            # Xoay vòng chiến thuật cookie để lách hệ thống chống Spam của Drive
+                            for use_cookie in [False, True, False]:
+                                try:
+                                    gdown.download_folder(url=folder_url, output=str(out_dir), quiet=True, use_cookies=use_cookie)
+                                    if any(out_dir.iterdir()): # Xác nhận có file tải về
+                                        success = True
+                                        break
+                                except Exception:
+                                    time.sleep(2) # Nghỉ nhịp trước khi thử lại
+                                    
+                            if not success:
+                                st.error(f"❌ Google chặn Web tải tự động thư mục '{drive_name}'.\n💡 Khắc phục: Mở link trên trình duyệt, tải file ZIP về máy tính, sau đó dùng **Chế độ 2** (Tải ảnh từ máy tính) để xử lý.")
+                                continue # Bỏ qua link này để chạy tiếp link sau
+                            
+                            # Đã tải thành công -> Tiến hành Resize
                             for img in [f for f in out_dir.rglob("*.*") if f.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp"]]:
                                 resize_image(img, w, h)
                         else:
                             file_path = download_direct_file(file_id, out_dir, drive_name)
-                            resize_image(file_path, w, h)
+                            if file_path and file_path.exists():
+                                resize_image(file_path, w, h)
                     except Exception as e:
-                        st.warning(f"⚠️ Bỏ qua tải '{drive_name}' do lỗi quyền truy cập.")
-                        continue
+                        st.warning(f"⚠️ Bỏ qua tải '{drive_name}' do lỗi không xác định: {e}")
+                        continue 
                     
+                    # --- XỬ LÝ UPLOAD ---
                     if target_folder_id and drive_service:
                         status_text.info(f"📤 Đang Upload **{drive_name}** lên Drive đích...")
                         try:
@@ -335,21 +351,22 @@ if "Google Drive" in mode:
                                 upload_to_drive(drive_service, img, new_folder_id)
                             st.success(f"✅ Đã Upload xong: {drive_name}")
                         except Exception as e:
-                            st.warning(f"⚠️ Bỏ qua upload '{drive_name}'.")
+                            st.warning(f"⚠️ Bỏ qua upload '{drive_name}'. Có thể thư mục đích chưa mở quyền Chỉnh Sửa.")
 
                     progress_bar.progress((i+1) / len(links))
-                    if i < len(links) - 1: time.sleep(3)
+                    if i < len(links) - 1: time.sleep(3) # Nghỉ nhịp giữa các link để chống spam
                 
                 status_text.success("🎉 HOÀN TẤT TOÀN BỘ TIẾN TRÌNH!")
                 shutil.make_archive(temp_path / "Drive_Images_Done", 'zip', temp_path)
                 st.balloons()
+                
                 with open(temp_path / "Drive_Images_Done.zip", "rb") as f:
                     st.download_button("📥 TẢI DỰ PHÒNG TOÀN BỘ ẢNH (FILE ZIP)", f, file_name="Drive_Images_Done.zip", mime="application/zip", type="primary", use_container_width=True)
 
 # ---------------------------------------------------------
 # MODE 2: LOCAL PC (CHUẨN WEB APP BẰNG FILE ZIP)
 # ---------------------------------------------------------
-elif "máy tính" in mode or "Upload ZIP" in mode:
+elif "Upload ZIP" in mode or "máy tính" in mode:
     st.info("💡 **HƯỚNG DẪN:** Để giữ nguyên cấu trúc thư mục khi làm việc trên Web, bạn hãy nén tất cả các thư mục cần làm thành **1 file .zip** rồi tải lên đây.")
     
     uploaded_zip = st.file_uploader("📦 Tải lên file ZIP chứa các thư mục ảnh:", type=['zip'])
@@ -440,17 +457,17 @@ elif "máy tính" in mode or "Upload ZIP" in mode:
                                 
                             st.success(f"✅ Upload thành công {len(jpg_files)} ảnh, giữ nguyên 100% cấu trúc thư mục!")
                         except Exception as e:
-                            st.warning(f"⚠️ Lỗi Upload: {e}. Vui lòng tải ZIP dự phòng bên dưới.")
+                            st.warning(f"⚠️ Quá trình Upload gặp lỗi, vui lòng lấy file qua nút tải ZIP bên dưới.")
 
-                    status_text.success("🎉 Hoàn tất quá trình xử lý!")
-                    shutil.make_archive(temp_path / "Resized_Finished", 'zip', out_dir)
+                    status_text.success("🎉 Hoàn tất toàn bộ ảnh Offline!")
+                    shutil.make_archive(temp_path / "Local_Images_Done", 'zip', out_dir)
                     st.balloons()
                     
-                    with open(temp_path / "Resized_Finished.zip", "rb") as f:
-                        st.download_button("📥 TẢI XUỐNG KẾT QUẢ (FILE ZIP)", f, file_name="Resized_Finished.zip", mime="application/zip", type="primary", use_container_width=True)
+                    with open(temp_path / "Local_Images_Done.zip", "rb") as f:
+                        st.download_button("📥 TẢI XUỐNG BẢN LƯU (FILE ZIP)", f, file_name="Local_Images_Done.zip", mime="application/zip", type="primary", use_container_width=True)
 
 # ---------------------------------------------------------
-# MODE 3: WEB CRAWLER (TGDD / DMX) - CHẾ ĐỘ MỚI
+# MODE 3: WEB CRAWLER (TGDD / DMX)
 # ---------------------------------------------------------
 elif "Web" in mode:
     st.info("💡 **HƯỚNG DẪN:** Dán link sản phẩm Thế Giới Di Động hoặc Điện Máy Xanh. Hệ thống sẽ quét màu, cho bạn tick chọn, tải ảnh gốc, Resize và Upload.")
