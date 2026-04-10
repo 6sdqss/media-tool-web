@@ -6,48 +6,47 @@ import time
 import shutil
 import tempfile
 import zipfile
-import json
 import concurrent.futures
-import threading
 from pathlib import Path
 from PIL import Image
 import gdown
 
+# Thư viện cho Google Drive Upload
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
+# Thư viện cho Web Scraping (Chế độ 3)
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 
+# ==========================================
+# CẤU HÌNH TRANG & CSS
+# ==========================================
 st.set_page_config(page_title="Hệ thống Resize & Auto Upload", layout="centered", page_icon="🖼️")
 
 st.markdown("""
 <style>
+    /* Nâng cấp giao diện nút bấm */
     div.stButton > button:first-child { border-radius: 8px; font-weight: 600; transition: all 0.3s ease; height: 45px; }
     div.stButton > button:first-child:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-    #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
-    .block-container { padding-top: 2rem; padding-bottom: 2rem; }
     
-    /* Giao diện control box cho dễ nhìn hơn */
-    .control-box {
-        background-color: #f8f9fa;
-        padding: 15px;
-        border-radius: 10px;
-        margin-top: 10px;
-        margin-bottom: 15px;
-        border: 1px solid #e5e7eb;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    /* ẨN MENU VÀ GITHUB ICON CỦA STREAMLIT */
+    #MainMenu {visibility: hidden;} /* Ẩn menu hamburger */
+    header {visibility: hidden;} /* Ẩn thanh header chứa nút GitHub/Deploy */
+    footer {visibility: hidden;} /* Ẩn footer "Made with Streamlit" */
+    
+    /* Khoảng trống bù lại khi ẩn header để giao diện không bị đẩy lên quá cao */
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Khởi tạo trạng thái điều khiển tải
-if 'download_status' not in st.session_state:
-    st.session_state.download_status = 'idle'
-
+# ==========================================
+# HỆ THỐNG ĐĂNG NHẬP
+# ==========================================
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
@@ -70,8 +69,13 @@ with st.sidebar:
         st.session_state["logged_in"] = False
         st.rerun()
 
+# ==========================================
+# KẾT NỐI API UPLOAD GOOGLE DRIVE
+# ==========================================
 def get_gdrive_service():
+    """Hỗ trợ cả Streamlit Secrets (Cloud) và File Local"""
     try:
+        # 1. Ưu tiên đọc từ Streamlit Secrets nếu chạy trên Cloud
         if "gcp_service_account" in st.secrets:
             creds_info = st.secrets["gcp_service_account"]
             creds = service_account.Credentials.from_service_account_info(
@@ -81,6 +85,7 @@ def get_gdrive_service():
     except: pass
 
     try:
+        # 2. Đọc từ file credentials.json nếu chạy ở máy tính local
         if os.path.exists('credentials.json'):
             creds = service_account.Credentials.from_service_account_file(
                 'credentials.json', scopes=['https://www.googleapis.com/auth/drive']
@@ -88,6 +93,7 @@ def get_gdrive_service():
             return build('drive', 'v3', credentials=creds)
     except Exception as e:
         print(f"Lỗi API Google: {e}")
+    
     return None
 
 def create_drive_folder(service, folder_name, parent_id):
@@ -101,6 +107,9 @@ def upload_to_drive(service, file_path, target_folder_id):
     file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
     return file.get('id')
 
+# ==========================================
+# HÀM PHỤ & XỬ LÝ ẢNH
+# ==========================================
 def get_unique_path(path: Path) -> Path:
     if not path.exists(): return path
     base, ext, counter = path.stem, path.suffix, 1
@@ -133,9 +142,9 @@ def get_drive_name(file_id: str, kind: str):
 def download_direct_file(file_id: str, save_folder: Path, drive_name: str):
     base_url = f"https://drive.google.com/uc?export=download&id={file_id}"
     session = requests.Session()
-    response = session.get(base_url, stream=True, timeout=15)
+    response = session.get(base_url, stream=True, timeout=10)
     confirm_token = next((v for k, v in response.cookies.items() if k.startswith("download_warning")), None)
-    if confirm_token: response = session.get(base_url + f"&confirm={confirm_token}", stream=True, timeout=15)
+    if confirm_token: response = session.get(base_url + f"&confirm={confirm_token}", stream=True, timeout=10)
     
     save_path = get_unique_path(save_folder / f"{drive_name}.jpg")
     with open(save_path, "wb") as f:
@@ -168,41 +177,12 @@ def resize_image(image_path: Path, width=None, height=None):
     except Exception as e: print(f"Lỗi resize: {e}")
 
 def ignore_system_files(path: Path):
+    """Bỏ qua các file rác của MacOS hoặc Windows khi giải nén ZIP"""
     return path.name.startswith("._") or path.name == ".DS_Store" or path.name.startswith("__MACOSX")
 
 # ==========================================
-# DỮ LIỆU COOKIES MỚI NHẤT
+# CÁC HÀM PHỤ CHO SCRAPING WEB (CHẾ ĐỘ 3)
 # ==========================================
-RAW_COOKIES = [
-    {"domain": ".thegioididong.com", "name": "_ce.clock_data", "value": "-110%2C113.161.59.60%2C1%2C91e1a2a41c0741f7f47615ab9de2fb8a%2CChrome%2CVN"},
-    {"domain": ".thegioididong.com", "name": "_ce.s", "value": "v~10b349a1bfb597f2fbfafdd33af1d88e35768560~lcw~1775808302291~vir~returning~lva~1775788787457~vpv~198~v11ls~8496c620-34b3-11f1-b933-8983fd7f9723~v11.cs~453625~v11.s~8496c620-34b3-11f1-b933-8983fd7f9723~v11.vs~10b349a1bfb597f2fbfafdd33af1d88e35768560"},
-    {"domain": ".thegioididong.com", "name": "cebs", "value": "1"},
-    {"domain": ".thegioididong.com", "name": "cebsp_", "value": "32"},
-    {"domain": ".thegioididong.com", "name": "mwgsp", "value": "1"},
-    {"domain": "www.thegioididong.com", "name": "ASP.NET_SessionId", "value": "zgo0wxmkgvnqbqub0lkreuon"},
-    {"domain": "www.thegioididong.com", "name": "SvID", "value": "beline26122|adivM|adhi9"},
-    {"domain": "www.thegioididong.com", "name": "TBMCookie_3209819802479625248", "value": "272331001775808103SbF4f4kGHIEXWQ8vk5fTCgPn/0Q="}
-]
-
-TGDD_COOKIES_DICT = {c['name']: c['value'] for c in RAW_COOKIES}
-
-def resolve_redirect_url(url: str) -> str:
-    if "/sp-" in url or "/dtdd-" in url or "/may-tinh-bang-" in url:
-        try:
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-            response = requests.get(url, headers=headers, cookies=TGDD_COOKIES_DICT, allow_redirects=True, timeout=15)
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, "html.parser")
-                meta_refresh = soup.find("meta", attrs={"http-equiv": "refresh"})
-                if meta_refresh:
-                    content = meta_refresh.get("content", "")
-                    if "url=" in content.lower():
-                        redirect_url = content.split("url=")[-1].strip("'\"")
-                        return urljoin(url, redirect_url)
-            return response.url
-        except: pass
-    return url
-
 def clean_name(name: str) -> str:
     cleaned = re.sub(r'[\\/:*?"<>|]', "", name)
     cleaned = re.sub(r"\s+", " ", cleaned)
@@ -216,29 +196,35 @@ def refine_product_name(name: str) -> str:
 def get_item_name(main_url):
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
-        response = requests.get(main_url, headers=headers, cookies=TGDD_COOKIES_DICT, timeout=10)
+        response = requests.get(main_url, headers=headers, timeout=10)
         if response.status_code != 200: return "Sản_phẩm_không_tên"
         soup = BeautifulSoup(response.text, "html.parser")
+
         name_tag = soup.find("h1")
-        if name_tag: name = name_tag.text.strip()
+        if name_tag:
+            name = name_tag.text.strip()
         else:
             text = soup.get_text()
             match = re.search(r'item_name\s*:\s*"(.*?)"', text)
-            if match: name = match.group(1)
+            if match:
+                name = match.group(1)
             else:
                 title = soup.find("title")
                 name = title.text.split("|")[0].strip() if title else "Sản phẩm"
         return clean_name(refine_product_name(name))
-    except: return "Sản_phẩm_không_tên"
+    except:
+        return "Sản_phẩm_không_tên"
 
 def get_color_links_and_names(main_url):
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
-        response = requests.get(main_url, headers=headers, cookies=TGDD_COOKIES_DICT, timeout=10)
+        response = requests.get(main_url, headers=headers, timeout=10)
         if response.status_code != 200: return []
+        
         soup = BeautifulSoup(response.text, "html.parser")
         parsed = urlparse(main_url)
         base_path = parsed.path
+
         color_data = []
         for a in soup.find_all("a", href=True):
             href = a["href"]
@@ -247,32 +233,31 @@ def get_color_links_and_names(main_url):
                 color_link = urljoin(main_url, href)
                 if color_name and color_link not in [c["link"] for c in color_data]:
                     color_data.append({"name": clean_name(color_name), "link": color_link})
-        if not color_data: return [{"name": "Mặc định", "link": main_url}]
+
+        if not color_data:
+            return [{"name": "Mặc định", "link": main_url}]
         return color_data
-    except Exception: return [{"name": "Mặc định", "link": main_url}]
+    except Exception as e:
+        return [{"name": "Mặc định", "link": main_url}]
 
 def get_gallery_image_urls(product_url):
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
-        response = requests.get(product_url, headers=headers, cookies=TGDD_COOKIES_DICT, timeout=10)
+        response = requests.get(product_url, headers=headers, timeout=10)
         if response.status_code != 200: return []
+        
         soup = BeautifulSoup(response.text, "html.parser")
         img_tags = soup.find_all("img")
         img_urls = []
         for img in img_tags:
             src = img.get("data-src") or img.get("src")
             if src and "750x500" in src:
+                # Xóa hậu tố 750x500 để lấy ảnh gốc độ phân giải cao nhất
                 original_url = re.sub(r"-750x500", "", urljoin(product_url, src))
                 img_urls.append(original_url)
         return list(set(img_urls))
-    except: return []
-
-def check_pause_cancel_state():
-    while st.session_state.download_status == 'paused':
-        time.sleep(1)
-    if st.session_state.download_status == 'cancelled':
-        return False
-    return True
+    except:
+        return []
 
 # ==========================================
 # GIAO DIỆN CHÍNH
@@ -280,7 +265,9 @@ def check_pause_cancel_state():
 st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>📥 Tool Resize & Auto Upload Pro</h1>", unsafe_allow_html=True)
 
 with st.container(border=True):
+    # --- ĐÃ THÊM CHẾ ĐỘ 3 VÀO RADIO BUTTON ---
     mode = st.radio("Chế độ:", ["🌐 Tải từ Google Drive", "💻 Tải ảnh từ máy tính (Upload ZIP)", "🛒 Tải từ Web (TGDD / DMX)"], horizontal=True)
+    
     size_options = {
         "Tải & resize 1020x680": (1020, 680),
         "Tải & resize 1020x570": (1020, 570),
@@ -292,145 +279,89 @@ with st.container(border=True):
 st.write("")
 drive_service = get_gdrive_service()
 
-def render_control_buttons():
-    st.markdown('<div class="control-box">', unsafe_allow_html=True)
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.button("⏸️ Tạm dừng", use_container_width=True):
-            st.session_state.download_status = 'paused'
-            st.rerun()
-    with col2:
-        if st.button("▶️ Tiếp tục", use_container_width=True):
-            st.session_state.download_status = 'running'
-            st.rerun()
-    with col3:
-        if st.button("⏹️ Hủy bỏ", type="primary", use_container_width=True):
-            st.session_state.download_status = 'cancelled'
-            st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-
 # ---------------------------------------------------------
-# MODE 1: GOOGLE DRIVE (ĐÃ NÂNG CẤP ĐA LUỒNG & BÁO LỖI)
+# MODE 1: GOOGLE DRIVE (Giữ nguyên luồng xử lý ổn định)
 # ---------------------------------------------------------
 if "Google Drive" in mode:
     st.markdown("### 📥 1. NGUỒN ẢNH (Dán link cần tải)")
     links_text = st.text_area("Link File/Thư mục cần Resize (Mỗi link 1 dòng):", height=120)
+    
     st.markdown("### 📤 2. ĐÍCH UPLOAD (Tự động up sau khi xử lý)")
     upload_link = st.text_input("Link Thư mục Drive ĐÍCH:", placeholder="Bỏ trống nếu chỉ muốn tải file ZIP về máy")
     
     if upload_link and not drive_service:
-        st.warning("⚠️ Hệ thống chưa kết nối API Upload Drive.")
+        st.warning("⚠️ Hệ thống chưa kết nối API Upload Drive. Ảnh sẽ được tải về dạng ZIP thay vì Upload tự động.")
 
     if st.button("🚀 BẮT ĐẦU CHẠY", type="primary", use_container_width=True):
-        st.session_state.download_status = 'running'
         links = [l.strip() for l in links_text.splitlines() if l.strip()]
         target_folder_id, _ = extract_drive_id_and_type(upload_link) if upload_link else (None, None)
 
         if not links:
             st.error("⚠️ Vui lòng dán link cần tải!")
-            st.session_state.download_status = 'idle'
         else:
-            render_control_buttons()
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
                 status_text = st.empty()
                 progress_bar = st.progress(0)
                 
                 for i, url in enumerate(links):
-                    if not check_pause_cancel_state(): break
                     file_id, kind = extract_drive_id_and_type(url)
-                    if not file_id: 
-                        st.warning(f"⚠️ Link không hợp lệ: {url}")
-                        continue
+                    if not file_id: continue
                     
                     status_text.info(f"⏳ Đang lấy thông tin bộ ảnh {i+1}/{len(links)}...")
                     drive_name = get_drive_name(file_id, kind)
                     out_dir = temp_path / drive_name
                     out_dir.mkdir(parents=True, exist_ok=True)
 
+                    status_text.info(f"📥 Đang xử lý: **{drive_name}**...")
+                    
                     try:
                         if kind == "folder":
-                            # Vượt rào tải folder (bắt buộc tuần tự để không bị ban IP)
-                            success = False
-                            for attempt in range(3):
-                                try:
-                                    gdown.download_folder(id=file_id, output=str(out_dir), quiet=True, use_cookies=(attempt == 1))
-                                    success = True
-                                    break
-                                except Exception as e:
-                                    time.sleep(4)
-                            if not success:
-                                st.error(f"❌ Drive chặn tải thư mục '{drive_name}' do tải quá nhiều. Vui lòng thử lại sau.")
-                                continue
-                            
-                            images_to_process = [f for f in out_dir.rglob("*.*") if f.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp"]]
-                            
-                            # XỬ LÝ RESIZE ĐA LUỒNG SIÊU TỐC CHO MODE 1
-                            if images_to_process:
-                                status_text.info(f"⚡ Đang Resize đa luồng {len(images_to_process)} ảnh của {drive_name}...")
-                                def resize_worker(img):
-                                    if check_pause_cancel_state(): resize_image(img, w, h)
-                                
-                                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                                    futures = [executor.submit(resize_worker, img) for img in images_to_process]
-                                    for future in concurrent.futures.as_completed(futures):
-                                        if not check_pause_cancel_state(): break
+                            gdown.download_folder(id=file_id, output=str(out_dir), quiet=True, use_cookies=False)
+                            for img in [f for f in out_dir.rglob("*.*") if f.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp"]]:
+                                resize_image(img, w, h)
                         else:
                             file_path = download_direct_file(file_id, out_dir, drive_name)
                             resize_image(file_path, w, h)
                     except Exception as e:
-                        st.error(f"❌ Lỗi tải link {url}: {e}")
+                        st.warning(f"⚠️ Bỏ qua tải '{drive_name}' do lỗi quyền truy cập.")
                         continue
                     
-                    # XỬ LÝ UPLOAD ĐA LUỒNG CHO MODE 1
-                    if target_folder_id and drive_service and check_pause_cancel_state():
-                        status_text.info(f"📤 Đang Upload đa luồng **{drive_name}** lên Drive đích...")
+                    if target_folder_id and drive_service:
+                        status_text.info(f"📤 Đang Upload **{drive_name}** lên Drive đích...")
                         try:
                             new_folder_id = create_drive_folder(drive_service, drive_name, target_folder_id)
-                            jpg_files = list(out_dir.rglob("*.jpg"))
-                            
-                            def upload_worker(img):
-                                if check_pause_cancel_state():
-                                    upload_to_drive(drive_service, img, new_folder_id)
-                            
-                            uploaded_count = 0
-                            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                                futures = [executor.submit(upload_worker, img) for img in jpg_files]
-                                for future in concurrent.futures.as_completed(futures):
-                                    if not check_pause_cancel_state(): break
-                                    uploaded_count += 1
-                                    status_text.info(f"📤 Đã upload {uploaded_count}/{len(jpg_files)} ảnh của {drive_name}...")
-                                    
+                            for img in out_dir.rglob("*.jpg"):
+                                upload_to_drive(drive_service, img, new_folder_id)
                             st.success(f"✅ Đã Upload xong: {drive_name}")
                         except Exception as e:
-                            st.warning(f"⚠️ Lỗi upload '{drive_name}': {e}")
+                            st.warning(f"⚠️ Bỏ qua upload '{drive_name}'.")
 
                     progress_bar.progress((i+1) / len(links))
+                    if i < len(links) - 1: time.sleep(3)
                 
-                if st.session_state.download_status == 'cancelled':
-                    status_text.error("🚫 Đã hủy quá trình tải!")
-                else:
-                    status_text.success("🎉 HOÀN TẤT!")
-                    shutil.make_archive(temp_path / "Drive_Images_Done", 'zip', temp_path)
-                    with open(temp_path / "Drive_Images_Done.zip", "rb") as f:
-                        st.download_button("📥 TẢI KẾT QUẢ", f, file_name="Drive_Images_Done.zip", mime="application/zip", use_container_width=True)
-                st.session_state.download_status = 'idle'
+                status_text.success("🎉 HOÀN TẤT TOÀN BỘ TIẾN TRÌNH!")
+                shutil.make_archive(temp_path / "Drive_Images_Done", 'zip', temp_path)
+                st.balloons()
+                with open(temp_path / "Drive_Images_Done.zip", "rb") as f:
+                    st.download_button("📥 TẢI DỰ PHÒNG TOÀN BỘ ẢNH (FILE ZIP)", f, file_name="Drive_Images_Done.zip", mime="application/zip", type="primary", use_container_width=True)
 
 # ---------------------------------------------------------
-# MODE 2: LOCAL PC
+# MODE 2: LOCAL PC (CHUẨN WEB APP BẰNG FILE ZIP)
 # ---------------------------------------------------------
 elif "máy tính" in mode or "Upload ZIP" in mode:
-    st.info("💡 **HƯỚNG DẪN:** Nén các thư mục thành **1 file .zip hoặc .rar** rồi tải lên đây.")
-    uploaded_file = st.file_uploader("📦 Tải lên file ZIP hoặc RAR:", type=['zip', 'rar'])
-    upload_link = st.text_input("📤 Link Thư mục Drive ĐÍCH:", placeholder="Bỏ trống nếu chỉ lấy file ZIP")
+    st.info("💡 **HƯỚNG DẪN:** Để giữ nguyên cấu trúc thư mục khi làm việc trên Web, bạn hãy nén tất cả các thư mục cần làm thành **1 file .zip** rồi tải lên đây.")
+    
+    uploaded_zip = st.file_uploader("📦 Tải lên file ZIP chứa các thư mục ảnh:", type=['zip'])
+    upload_link = st.text_input("📤 Link Thư mục Drive ĐÍCH (Nếu muốn Auto Upload):", placeholder="Bỏ trống nếu chỉ muốn lấy file ZIP")
+
+    if upload_link and not drive_service:
+        st.warning("⚠️ Hệ thống chưa kết nối API Upload Drive. Ảnh sẽ được tải về dạng ZIP thay vì Upload tự động.")
 
     if st.button("🚀 BẮT ĐẦU RESIZE LOCAL", type="primary", use_container_width=True):
-        st.session_state.download_status = 'running'
-        if not uploaded_file:
-            st.error("⚠️ Bạn chưa tải file nào lên!")
-            st.session_state.download_status = 'idle'
+        if not uploaded_zip:
+            st.error("⚠️ Bạn chưa tải file ZIP lên!")
         else:
-            render_control_buttons()
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
                 extract_path = temp_path / "Extracted"
@@ -439,136 +370,139 @@ elif "máy tính" in mode or "Upload ZIP" in mode:
                 status_text = st.empty()
                 progress_bar = st.progress(0)
                 
-                status_text.info("⏳ Đang giải nén file...")
+                status_text.info("⏳ Đang giải nén file ZIP...")
                 try:
-                    file_ext = uploaded_file.name.split('.')[-1].lower()
-                    if file_ext == 'zip':
-                        with zipfile.ZipFile(uploaded_file, 'r') as zip_ref:
-                            zip_ref.extractall(extract_path)
-                    elif file_ext == 'rar':
-                        import rarfile
-                        temp_rar_path = temp_path / uploaded_file.name
-                        with open(temp_rar_path, "wb") as f: f.write(uploaded_file.getbuffer())
-                        with rarfile.RarFile(temp_rar_path, 'r') as rar_ref:
-                            rar_ref.extractall(extract_path)
+                    with zipfile.ZipFile(uploaded_zip, 'r') as zip_ref:
+                        zip_ref.extractall(extract_path)
                 except Exception as e:
-                    st.error(f"❌ Lỗi giải nén: {e}")
-                    st.session_state.download_status = 'idle'
+                    st.error("❌ Lỗi: File ZIP bị hỏng hoặc không đúng định dạng.")
                     st.stop()
 
-                valid_files = [f for f in extract_path.rglob('*') if f.suffix.lower() in ['.png', '.jpg', '.jpeg', '.webp'] and not ignore_system_files(f)]
+                valid_files = []
+                for ext in ('*.png', '*.jpg', '*.jpeg', '*.webp', '*.PNG', '*.JPG', '*.JPEG', '*.WEBP'):
+                    for file_path in extract_path.rglob(ext):
+                        if not ignore_system_files(file_path):
+                            valid_files.append(file_path)
 
                 if not valid_files:
-                    st.error("⚠️ Không tìm thấy ảnh hợp lệ!")
+                    st.error("⚠️ Không tìm thấy ảnh hợp lệ nào trong file ZIP!")
                 else:
+                    status_text.info(f"⏳ Đang xử lý Đa luồng {len(valid_files)} ảnh...")
+                    
                     def process_local_file(file_path):
-                        if not check_pause_cancel_state(): return
                         rel_path = file_path.relative_to(extract_path)
                         if "MACOSX" in str(rel_path): return
+                        
                         img_target = out_dir / rel_path
                         img_target.parent.mkdir(parents=True, exist_ok=True)
                         try:
                             shutil.copy2(file_path, img_target)
                             resize_image(img_target, w, h)
-                        except: pass
+                        except Exception as e:
+                            print(f"Lỗi xử lý: {e}")
 
                     processed_count = 0
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
                         futures = [executor.submit(process_local_file, f) for f in valid_files]
                         for future in concurrent.futures.as_completed(futures):
-                            if not check_pause_cancel_state(): break
                             processed_count += 1
+                            status_text.info(f"⏳ Đang xử lý: {processed_count}/{len(valid_files)} ảnh...")
                             progress_bar.progress(processed_count / len(valid_files))
                     
                     target_folder_id, _ = extract_drive_id_and_type(upload_link) if upload_link else (None, None)
-                    if target_folder_id and drive_service and check_pause_cancel_state():
-                        status_text.info("📤 Đang Upload lên Google Drive...")
+                    
+                    if target_folder_id and drive_service:
+                        status_text.info("📤 Đang phân tích cấu trúc và Upload lên Google Drive...")
                         try:
-                            root_folder_id = create_drive_folder(drive_service, f"Local_Resized_{int(time.time())}", target_folder_id)
+                            root_folder_name = f"Local_Resized_Images_{int(time.time())}"
+                            root_folder_id = create_drive_folder(drive_service, root_folder_name, target_folder_id)
+                            
                             folder_cache = {"": root_folder_id, ".": root_folder_id}
                             jpg_files = list(out_dir.rglob("*.jpg"))
+                            
                             for idx, img in enumerate(jpg_files):
-                                if not check_pause_cancel_state(): break
-                                rel_dir_str = str(img.parent.relative_to(out_dir))
+                                rel_dir = img.parent.relative_to(out_dir)
+                                rel_dir_str = str(rel_dir)
+                                
                                 if rel_dir_str not in folder_cache:
                                     current_parent = root_folder_id
                                     current_path = ""
-                                    for part in Path(rel_dir_str).parts:
+                                    for part in rel_dir.parts:
                                         current_path = os.path.join(current_path, part) if current_path else part
                                         if current_path not in folder_cache:
-                                            folder_cache[current_path] = create_drive_folder(drive_service, part, current_parent)
+                                            new_id = create_drive_folder(drive_service, part, current_parent)
+                                            folder_cache[current_path] = new_id
                                         current_parent = folder_cache[current_path]
-                                upload_to_drive(drive_service, img, folder_cache[rel_dir_str])
-                        except: pass
+                                
+                                dest_folder_id = folder_cache[rel_dir_str]
+                                upload_to_drive(drive_service, img, dest_folder_id)
+                                status_text.info(f"📤 Đã upload {idx + 1}/{len(jpg_files)} ảnh...")
+                                
+                            st.success(f"✅ Upload thành công {len(jpg_files)} ảnh, giữ nguyên 100% cấu trúc thư mục!")
+                        except Exception as e:
+                            st.warning(f"⚠️ Lỗi Upload: {e}. Vui lòng tải ZIP dự phòng bên dưới.")
 
-                if st.session_state.download_status == 'cancelled':
-                    status_text.error("🚫 Đã hủy quá trình!")
-                else:
-                    status_text.success("🎉 Hoàn tất!")
+                    status_text.success("🎉 Hoàn tất quá trình xử lý!")
                     shutil.make_archive(temp_path / "Resized_Finished", 'zip', out_dir)
+                    st.balloons()
+                    
                     with open(temp_path / "Resized_Finished.zip", "rb") as f:
-                        st.download_button("📥 TẢI KẾT QUẢ", f, file_name="Resized_Finished.zip", mime="application/zip", use_container_width=True)
-                st.session_state.download_status = 'idle'
+                        st.download_button("📥 TẢI XUỐNG KẾT QUẢ (FILE ZIP)", f, file_name="Resized_Finished.zip", mime="application/zip", type="primary", use_container_width=True)
 
 # ---------------------------------------------------------
-# MODE 3: WEB CRAWLER (TGDD / DMX) 
+# MODE 3: WEB CRAWLER (TGDD / DMX) - CHẾ ĐỘ MỚI
 # ---------------------------------------------------------
 elif "Web" in mode:
-    st.info("💡 **HƯỚNG DẪN:** Dán link TGDD/DMX (kể cả link rút gọn). Hệ thống tự phân tích cấu trúc màu và xử lý siêu tốc.")
+    st.info("💡 **HƯỚNG DẪN:** Dán link sản phẩm Thế Giới Di Động hoặc Điện Máy Xanh. Hệ thống sẽ quét màu, cho bạn tick chọn, tải ảnh gốc, Resize và Upload.")
     
     if "web_scanned_data" not in st.session_state:
         st.session_state["web_scanned_data"] = []
 
     links_text = st.text_area("🔗 Dán Link sản phẩm (Mỗi link 1 dòng):", height=100)
     
-    if st.button("🔍 1. QUÉT SẢN PHẨM & TÌM MÀU (ĐA LUỒNG)", use_container_width=True):
+    if st.button("🔍 1. QUÉT SẢN PHẨM & TÌM MÀU", use_container_width=True):
         links = [l.strip() for l in links_text.splitlines() if l.strip()]
         if not links:
             st.error("⚠️ Vui lòng dán ít nhất 1 link!")
         else:
-            with st.spinner("Đang phân tích link siêu tốc..."):
+            with st.spinner("Đang quét dữ liệu từ web..."):
                 scanned_data = []
-                
-                def scan_url_worker(link):
-                    real_link = resolve_redirect_url(link)
-                    name = get_item_name(real_link)
-                    colors = get_color_links_and_names(real_link)
-                    return {"original_link": link, "real_link": real_link, "product_name": name, "colors": colors}
-
-                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                    futures = [executor.submit(scan_url_worker, l) for l in links]
-                    for future in concurrent.futures.as_completed(futures):
-                        try:
-                            scanned_data.append(future.result())
-                        except Exception: pass
-                
+                for link in links:
+                    name = get_item_name(link)
+                    colors = get_color_links_and_names(link)
+                    scanned_data.append({
+                        "original_link": link,
+                        "product_name": name,
+                        "colors": colors
+                    })
                 st.session_state["web_scanned_data"] = scanned_data
-            st.success("✅ Đã quét xong! Chọn màu cần tải bên dưới.")
+            st.success("✅ Đã quét xong! Vui lòng chọn màu bên dưới.")
 
     if st.session_state["web_scanned_data"]:
         st.markdown("---")
         st.markdown("### 🎨 2. CHỌN MÀU CẦN TẢI")
         
         selected_tasks = []
-        for idx_item, item in enumerate(st.session_state["web_scanned_data"]):
+        for item in st.session_state["web_scanned_data"]:
             st.markdown(f"**📦 {item['product_name']}**")
             cols = st.columns(3)
-            for idx_color, color in enumerate(item["colors"]):
-                with cols[idx_color % 3]:
-                    if st.checkbox(color["name"], value=True, key=f"cb_{idx_item}_{item['original_link']}_{color['name']}"):
-                        selected_tasks.append({"product_name": item["product_name"], "color_name": color["name"], "link": color["link"]})
+            for idx, color in enumerate(item["colors"]):
+                with cols[idx % 3]:
+                    if st.checkbox(color["name"], value=True, key=f"cb_{item['original_link']}_{color['name']}"):
+                        selected_tasks.append({
+                            "product_name": item["product_name"],
+                            "color_name": color["name"],
+                            "link": color["link"]
+                        })
         
         st.markdown("---")
         st.markdown("### 📤 3. XỬ LÝ & UPLOAD")
-        upload_link = st.text_input("Link Thư mục Drive ĐÍCH:", placeholder="Bỏ trống nếu chỉ lấy file ZIP", key="web_drive_input")
+        upload_link = st.text_input("Link Thư mục Drive ĐÍCH:", placeholder="Bỏ trống nếu chỉ muốn tải file ZIP về máy", key="web_drive_input")
         
-        if st.button("🚀 BẮT ĐẦU TẢI & RESIZE", type="primary", use_container_width=True):
-            st.session_state.download_status = 'running'
+        if st.button("🚀 BẮT ĐẦU TẢI, RESIZE & UPLOAD", type="primary", use_container_width=True):
             if not selected_tasks:
-                st.error("⚠️ Bạn chưa chọn màu nào!")
-                st.session_state.download_status = 'idle'
+                st.error("⚠️ Bạn chưa chọn màu nào để tải!")
             else:
-                render_control_buttons()
                 target_folder_id, _ = extract_drive_id_and_type(upload_link) if upload_link else (None, None)
                 
                 with tempfile.TemporaryDirectory() as temp_dir:
@@ -578,60 +512,70 @@ elif "Web" in mode:
                     
                     status_text = st.empty()
                     progress_bar = st.progress(0)
+                    
                     total_tasks = len(selected_tasks)
-
-                    def process_image_url(img_url, color_dir, headers):
-                        if not check_pause_cancel_state(): return
-                        try:
-                            img_name = os.path.basename(img_url.split("?")[0])
-                            save_path = color_dir / img_name
-                            img_data = requests.get(img_url, headers=headers, cookies=TGDD_COOKIES_DICT, timeout=10).content
-                            with open(save_path, "wb") as f: f.write(img_data)
-                            resize_image(save_path, w, h)
-                        except Exception: pass
-
                     for i, task in enumerate(selected_tasks):
-                        if not check_pause_cancel_state(): break
-                        p_name, c_name, c_link = task["product_name"], task["color_name"], task["link"]
-                        status_text.info(f"⏳ Đang xử lý: {p_name} - {c_name} ({i+1}/{total_tasks})")
+                        p_name = task["product_name"]
+                        c_name = task["color_name"]
+                        c_link = task["link"]
+                        
+                        status_text.info(f"⏳ Đang tải: {p_name} - Màu: {c_name} ({i+1}/{total_tasks})")
                         
                         color_dir = out_dir / p_name / c_name
                         color_dir.mkdir(parents=True, exist_ok=True)
                         
                         img_urls = get_gallery_image_urls(c_link)
-                        headers = {"User-Agent": "Mozilla/5.0"}
-                        
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                            futures = [executor.submit(process_image_url, url, color_dir, headers) for url in img_urls]
-                            concurrent.futures.wait(futures)
+                        if not img_urls:
+                            continue
                             
+                        headers = {"User-Agent": "Mozilla/5.0"}
+                        for idx, img_url in enumerate(img_urls):
+                            try:
+                                img_name = os.path.basename(img_url.split("?")[0])
+                                save_path = color_dir / img_name
+                                
+                                img_data = requests.get(img_url, headers=headers, timeout=10).content
+                                with open(save_path, "wb") as f:
+                                    f.write(img_data)
+                                    
+                                resize_image(save_path, w, h)
+                            except Exception as e:
+                                print(f"Lỗi tải/resize {img_url}: {e}")
+                                
                         progress_bar.progress((i + 1) / total_tasks)
                     
-                    if target_folder_id and drive_service and check_pause_cancel_state():
-                        status_text.info("📤 Đang Upload lên Google Drive...")
+                    if target_folder_id and drive_service:
+                        status_text.info("📤 Đang Upload lên Google Drive (Giữ nguyên cấu trúc)...")
                         try:
-                            root_folder_id = create_drive_folder(drive_service, f"Web_Resized_{int(time.time())}", target_folder_id)
+                            root_folder_name = f"Web_Resized_Images_{int(time.time())}"
+                            root_folder_id = create_drive_folder(drive_service, root_folder_name, target_folder_id)
                             folder_cache = {"": root_folder_id, ".": root_folder_id}
                             jpg_files = list(out_dir.rglob("*.jpg"))
+                            
                             for idx, img in enumerate(jpg_files):
-                                if not check_pause_cancel_state(): break
-                                rel_dir_str = str(img.parent.relative_to(out_dir))
+                                rel_dir = img.parent.relative_to(out_dir)
+                                rel_dir_str = str(rel_dir)
+                                
                                 if rel_dir_str not in folder_cache:
                                     current_parent = root_folder_id
                                     current_path = ""
-                                    for part in Path(rel_dir_str).parts:
+                                    for part in rel_dir.parts:
                                         current_path = os.path.join(current_path, part) if current_path else part
                                         if current_path not in folder_cache:
-                                            folder_cache[current_path] = create_drive_folder(drive_service, part, current_parent)
+                                            new_id = create_drive_folder(drive_service, part, current_parent)
+                                            folder_cache[current_path] = new_id
                                         current_parent = folder_cache[current_path]
-                                upload_to_drive(drive_service, img, folder_cache[rel_dir_str])
-                        except: pass
+                                
+                                dest_folder_id = folder_cache[rel_dir_str]
+                                upload_to_drive(drive_service, img, dest_folder_id)
+                                status_text.info(f"📤 Đã upload {idx + 1}/{len(jpg_files)} ảnh...")
+                                
+                            st.success(f"✅ Upload thành công {len(jpg_files)} ảnh!")
+                        except Exception as e:
+                            st.warning(f"⚠️ Lỗi Upload: {e}")
 
-                    if st.session_state.download_status == 'cancelled':
-                        status_text.error("🚫 Đã hủy quá trình!")
-                    else:
-                        status_text.success("🎉 Hoàn tất!")
-                        shutil.make_archive(temp_path / "Web_Images_Done", 'zip', out_dir)
-                        with open(temp_path / "Web_Images_Done.zip", "rb") as f:
-                            st.download_button("📥 TẢI KẾT QUẢ", f, file_name="Web_Images_Done.zip", mime="application/zip", use_container_width=True)
-                    st.session_state.download_status = 'idle'
+                    status_text.success("🎉 Hoàn tất cào dữ liệu và xử lý!")
+                    shutil.make_archive(temp_path / "Web_Images_Done", 'zip', out_dir)
+                    st.balloons()
+                    with open(temp_path / "Web_Images_Done.zip", "rb") as f:
+                        st.download_button("📥 TẢI XUỐNG KẾT QUẢ (FILE ZIP)", f, file_name="Web_Images_Done.zip", mime="application/zip", type="primary", use_container_width=True)
