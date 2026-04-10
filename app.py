@@ -16,6 +16,10 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
+# Thư viện cho Web Scraping (Chế độ 3)
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
+
 # ==========================================
 # CẤU HÌNH TRANG & CSS
 # ==========================================
@@ -177,12 +181,93 @@ def ignore_system_files(path: Path):
     return path.name.startswith("._") or path.name == ".DS_Store" or path.name.startswith("__MACOSX")
 
 # ==========================================
+# CÁC HÀM PHỤ CHO SCRAPING WEB (CHẾ ĐỘ 3)
+# ==========================================
+def clean_name(name: str) -> str:
+    cleaned = re.sub(r'[\\/:*?"<>|]', "", name)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip()
+
+def refine_product_name(name: str) -> str:
+    name = re.sub(r"(,?\s*(giá tốt|thu cũ.*|trợ giá.*|góp 0%.*))", "", name, flags=re.IGNORECASE)
+    name = re.sub(r"\s+", " ", name)
+    return name.strip()
+
+def get_item_name(main_url):
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        response = requests.get(main_url, headers=headers, timeout=10)
+        if response.status_code != 200: return "Sản_phẩm_không_tên"
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        name_tag = soup.find("h1")
+        if name_tag:
+            name = name_tag.text.strip()
+        else:
+            text = soup.get_text()
+            match = re.search(r'item_name\s*:\s*"(.*?)"', text)
+            if match:
+                name = match.group(1)
+            else:
+                title = soup.find("title")
+                name = title.text.split("|")[0].strip() if title else "Sản phẩm"
+        return clean_name(refine_product_name(name))
+    except:
+        return "Sản_phẩm_không_tên"
+
+def get_color_links_and_names(main_url):
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        response = requests.get(main_url, headers=headers, timeout=10)
+        if response.status_code != 200: return []
+        
+        soup = BeautifulSoup(response.text, "html.parser")
+        parsed = urlparse(main_url)
+        base_path = parsed.path
+
+        color_data = []
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if base_path in href and "?code=" in href:
+                color_name = a.get_text(strip=True)
+                color_link = urljoin(main_url, href)
+                if color_name and color_link not in [c["link"] for c in color_data]:
+                    color_data.append({"name": clean_name(color_name), "link": color_link})
+
+        if not color_data:
+            return [{"name": "Mặc định", "link": main_url}]
+        return color_data
+    except Exception as e:
+        return [{"name": "Mặc định", "link": main_url}]
+
+def get_gallery_image_urls(product_url):
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        response = requests.get(product_url, headers=headers, timeout=10)
+        if response.status_code != 200: return []
+        
+        soup = BeautifulSoup(response.text, "html.parser")
+        img_tags = soup.find_all("img")
+        img_urls = []
+        for img in img_tags:
+            src = img.get("data-src") or img.get("src")
+            if src and "750x500" in src:
+                # Xóa hậu tố 750x500 để lấy ảnh gốc độ phân giải cao nhất
+                original_url = re.sub(r"-750x500", "", urljoin(product_url, src))
+                img_urls.append(original_url)
+        return list(set(img_urls))
+    except:
+        return []
+
+# ==========================================
 # GIAO DIỆN CHÍNH
 # ==========================================
 st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>📥 Tool Resize & Auto Upload Pro</h1>", unsafe_allow_html=True)
 
 with st.container(border=True):
-    mode = st.radio("Chế độ:", ["🌐 Tải từ Google Drive", "💻 Tải ảnh từ máy tính (Upload ZIP)"], horizontal=True)
+    # --- ĐÃ THÊM CHẾ ĐỘ 3 VÀO RADIO BUTTON ---
+    mode = st.radio("Chế độ:", ["🌐 Tải từ Google Drive", "💻 Tải ảnh từ máy tính (Upload ZIP)", "🛒 Tải từ Web (TGDD / DMX)"], horizontal=True)
+    
     size_options = {
         "Tải & resize 1020x680": (1020, 680),
         "Tải & resize 1020x570": (1020, 570),
@@ -264,7 +349,7 @@ if "Google Drive" in mode:
 # ---------------------------------------------------------
 # MODE 2: LOCAL PC (CHUẨN WEB APP BẰNG FILE ZIP)
 # ---------------------------------------------------------
-else:
+elif "máy tính" in mode or "Upload ZIP" in mode:
     st.info("💡 **HƯỚNG DẪN:** Để giữ nguyên cấu trúc thư mục khi làm việc trên Web, bạn hãy nén tất cả các thư mục cần làm thành **1 file .zip** rồi tải lên đây.")
     
     uploaded_zip = st.file_uploader("📦 Tải lên file ZIP chứa các thư mục ảnh:", type=['zip'])
@@ -277,7 +362,6 @@ else:
         if not uploaded_zip:
             st.error("⚠️ Bạn chưa tải file ZIP lên!")
         else:
-            # Dùng thư mục tạm thời độc lập cho mỗi user
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
                 extract_path = temp_path / "Extracted"
@@ -294,7 +378,6 @@ else:
                     st.error("❌ Lỗi: File ZIP bị hỏng hoặc không đúng định dạng.")
                     st.stop()
 
-                # Quét tìm ảnh hợp lệ (Bỏ qua file rác của MacOS)
                 valid_files = []
                 for ext in ('*.png', '*.jpg', '*.jpeg', '*.webp', '*.PNG', '*.JPG', '*.JPEG', '*.WEBP'):
                     for file_path in extract_path.rglob(ext):
@@ -304,14 +387,10 @@ else:
                 if not valid_files:
                     st.error("⚠️ Không tìm thấy ảnh hợp lệ nào trong file ZIP!")
                 else:
-                    # 1. Lưu & Resize đa luồng
                     status_text.info(f"⏳ Đang xử lý Đa luồng {len(valid_files)} ảnh...")
                     
                     def process_local_file(file_path):
-                        # Lấy đường dẫn tương đối từ thư mục giải nén để giữ nguyên cấu trúc
                         rel_path = file_path.relative_to(extract_path)
-                        
-                        # Bỏ qua thư mục rác __MACOSX nếu zip từ máy Mac
                         if "MACOSX" in str(rel_path): return
                         
                         img_target = out_dir / rel_path
@@ -330,13 +409,11 @@ else:
                             status_text.info(f"⏳ Đang xử lý: {processed_count}/{len(valid_files)} ảnh...")
                             progress_bar.progress(processed_count / len(valid_files))
                     
-                    # 2. Upload Google Drive (Tự tạo cấu trúc thư mục)
                     target_folder_id, _ = extract_drive_id_and_type(upload_link) if upload_link else (None, None)
                     
                     if target_folder_id and drive_service:
                         status_text.info("📤 Đang phân tích cấu trúc và Upload lên Google Drive...")
                         try:
-                            # Tạo thư mục gốc chứa lô hàng này
                             root_folder_name = f"Local_Resized_Images_{int(time.time())}"
                             root_folder_id = create_drive_folder(drive_service, root_folder_name, target_folder_id)
                             
@@ -347,7 +424,6 @@ else:
                                 rel_dir = img.parent.relative_to(out_dir)
                                 rel_dir_str = str(rel_dir)
                                 
-                                # Tạo cây thư mục trên Drive
                                 if rel_dir_str not in folder_cache:
                                     current_parent = root_folder_id
                                     current_path = ""
@@ -367,10 +443,139 @@ else:
                             st.warning(f"⚠️ Lỗi Upload: {e}. Vui lòng tải ZIP dự phòng bên dưới.")
 
                     status_text.success("🎉 Hoàn tất quá trình xử lý!")
-                    
-                    # 3. Nén ZIP trả về cho người dùng
                     shutil.make_archive(temp_path / "Resized_Finished", 'zip', out_dir)
                     st.balloons()
                     
                     with open(temp_path / "Resized_Finished.zip", "rb") as f:
                         st.download_button("📥 TẢI XUỐNG KẾT QUẢ (FILE ZIP)", f, file_name="Resized_Finished.zip", mime="application/zip", type="primary", use_container_width=True)
+
+# ---------------------------------------------------------
+# MODE 3: WEB CRAWLER (TGDD / DMX) - CHẾ ĐỘ MỚI
+# ---------------------------------------------------------
+elif "Web" in mode:
+    st.info("💡 **HƯỚNG DẪN:** Dán link sản phẩm Thế Giới Di Động hoặc Điện Máy Xanh. Hệ thống sẽ quét màu, cho bạn tick chọn, tải ảnh gốc, Resize và Upload.")
+    
+    if "web_scanned_data" not in st.session_state:
+        st.session_state["web_scanned_data"] = []
+
+    links_text = st.text_area("🔗 Dán Link sản phẩm (Mỗi link 1 dòng):", height=100)
+    
+    if st.button("🔍 1. QUÉT SẢN PHẨM & TÌM MÀU", use_container_width=True):
+        links = [l.strip() for l in links_text.splitlines() if l.strip()]
+        if not links:
+            st.error("⚠️ Vui lòng dán ít nhất 1 link!")
+        else:
+            with st.spinner("Đang quét dữ liệu từ web..."):
+                scanned_data = []
+                for link in links:
+                    name = get_item_name(link)
+                    colors = get_color_links_and_names(link)
+                    scanned_data.append({
+                        "original_link": link,
+                        "product_name": name,
+                        "colors": colors
+                    })
+                st.session_state["web_scanned_data"] = scanned_data
+            st.success("✅ Đã quét xong! Vui lòng chọn màu bên dưới.")
+
+    if st.session_state["web_scanned_data"]:
+        st.markdown("---")
+        st.markdown("### 🎨 2. CHỌN MÀU CẦN TẢI")
+        
+        selected_tasks = []
+        for item in st.session_state["web_scanned_data"]:
+            st.markdown(f"**📦 {item['product_name']}**")
+            cols = st.columns(3)
+            for idx, color in enumerate(item["colors"]):
+                with cols[idx % 3]:
+                    if st.checkbox(color["name"], value=True, key=f"cb_{item['original_link']}_{color['name']}"):
+                        selected_tasks.append({
+                            "product_name": item["product_name"],
+                            "color_name": color["name"],
+                            "link": color["link"]
+                        })
+        
+        st.markdown("---")
+        st.markdown("### 📤 3. XỬ LÝ & UPLOAD")
+        upload_link = st.text_input("Link Thư mục Drive ĐÍCH:", placeholder="Bỏ trống nếu chỉ muốn tải file ZIP về máy", key="web_drive_input")
+        
+        if st.button("🚀 BẮT ĐẦU TẢI, RESIZE & UPLOAD", type="primary", use_container_width=True):
+            if not selected_tasks:
+                st.error("⚠️ Bạn chưa chọn màu nào để tải!")
+            else:
+                target_folder_id, _ = extract_drive_id_and_type(upload_link) if upload_link else (None, None)
+                
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    temp_path = Path(temp_dir)
+                    out_dir = temp_path / "Web_Images_Resized"
+                    out_dir.mkdir(exist_ok=True)
+                    
+                    status_text = st.empty()
+                    progress_bar = st.progress(0)
+                    
+                    total_tasks = len(selected_tasks)
+                    for i, task in enumerate(selected_tasks):
+                        p_name = task["product_name"]
+                        c_name = task["color_name"]
+                        c_link = task["link"]
+                        
+                        status_text.info(f"⏳ Đang tải: {p_name} - Màu: {c_name} ({i+1}/{total_tasks})")
+                        
+                        color_dir = out_dir / p_name / c_name
+                        color_dir.mkdir(parents=True, exist_ok=True)
+                        
+                        img_urls = get_gallery_image_urls(c_link)
+                        if not img_urls:
+                            continue
+                            
+                        headers = {"User-Agent": "Mozilla/5.0"}
+                        for idx, img_url in enumerate(img_urls):
+                            try:
+                                img_name = os.path.basename(img_url.split("?")[0])
+                                save_path = color_dir / img_name
+                                
+                                img_data = requests.get(img_url, headers=headers, timeout=10).content
+                                with open(save_path, "wb") as f:
+                                    f.write(img_data)
+                                    
+                                resize_image(save_path, w, h)
+                            except Exception as e:
+                                print(f"Lỗi tải/resize {img_url}: {e}")
+                                
+                        progress_bar.progress((i + 1) / total_tasks)
+                    
+                    if target_folder_id and drive_service:
+                        status_text.info("📤 Đang Upload lên Google Drive (Giữ nguyên cấu trúc)...")
+                        try:
+                            root_folder_name = f"Web_Resized_Images_{int(time.time())}"
+                            root_folder_id = create_drive_folder(drive_service, root_folder_name, target_folder_id)
+                            folder_cache = {"": root_folder_id, ".": root_folder_id}
+                            jpg_files = list(out_dir.rglob("*.jpg"))
+                            
+                            for idx, img in enumerate(jpg_files):
+                                rel_dir = img.parent.relative_to(out_dir)
+                                rel_dir_str = str(rel_dir)
+                                
+                                if rel_dir_str not in folder_cache:
+                                    current_parent = root_folder_id
+                                    current_path = ""
+                                    for part in rel_dir.parts:
+                                        current_path = os.path.join(current_path, part) if current_path else part
+                                        if current_path not in folder_cache:
+                                            new_id = create_drive_folder(drive_service, part, current_parent)
+                                            folder_cache[current_path] = new_id
+                                        current_parent = folder_cache[current_path]
+                                
+                                dest_folder_id = folder_cache[rel_dir_str]
+                                upload_to_drive(drive_service, img, dest_folder_id)
+                                status_text.info(f"📤 Đã upload {idx + 1}/{len(jpg_files)} ảnh...")
+                                
+                            st.success(f"✅ Upload thành công {len(jpg_files)} ảnh!")
+                        except Exception as e:
+                            st.warning(f"⚠️ Lỗi Upload: {e}")
+
+                    status_text.success("🎉 Hoàn tất cào dữ liệu và xử lý!")
+                    shutil.make_archive(temp_path / "Web_Images_Done", 'zip', out_dir)
+                    st.balloons()
+                    with open(temp_path / "Web_Images_Done.zip", "rb") as f:
+                        st.download_button("📥 TẢI XUỐNG KẾT QUẢ (FILE ZIP)", f, file_name="Web_Images_Done.zip", mime="application/zip", type="primary", use_container_width=True)
