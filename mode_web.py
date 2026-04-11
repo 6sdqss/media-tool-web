@@ -154,7 +154,7 @@ def run_mode_web(w, h, drive_service, extract_drive_id_and_type):
                     total_tasks = len(selected_tasks)
 
                     def process_image_url(img_url, c_raw_dir, c_final_dir, headers):
-                        if not check_pause_cancel_state(): return
+                        # BẢO VỆ LUỒNG: Không gán check_pause_cancel_state() ở đây để tránh lỗi crash
                         try:
                             img_name = os.path.basename(img_url.split("?")[0])
                             save_path = c_raw_dir / img_name
@@ -175,6 +175,9 @@ def run_mode_web(w, h, drive_service, extract_drive_id_and_type):
                         c_final_dir.mkdir(parents=True, exist_ok=True)
                         
                         img_urls = get_gallery_image_urls(c_link)
+                        if not img_urls:
+                            st.warning(f"⚠️ Không tìm thấy ảnh cho {c_name}")
+                            
                         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                             futures = [executor.submit(process_image_url, url, c_raw_dir, c_final_dir, {"User-Agent": "Mozilla/5.0"}) for url in img_urls]
                             concurrent.futures.wait(futures)
@@ -197,17 +200,27 @@ def run_mode_web(w, h, drive_service, extract_drive_id_and_type):
                                         if current_path not in folder_cache:
                                             folder_cache[current_path] = create_drive_folder(drive_service, part, current_parent)
                                         current_parent = folder_cache[current_path]
-                                upload_to_drive(drive_service, img, folder_cache[rel_dir_str])
+                                    upload_to_drive(drive_service, img, folder_cache[rel_dir_str])
                         except: pass
 
-                    status_text.success("🎉 Hoàn tất!")
-                    shutil.make_archive(str(temp_path / "Web_Images_Done"), 'zip', final_dir)
-                    
-                    if os.path.exists(temp_path / "Web_Images_Done.zip"):
-                        with open(temp_path / "Web_Images_Done.zip", "rb") as f:
-                            st.session_state.web_zip_data = f.read()
-                            
+                    if st.session_state.download_status == 'cancelled':
+                        status_text.error("🚫 Đã hủy quá trình!")
+                    else:
+                        status_text.success("🎉 Hoàn tất!")
+                        shutil.make_archive(str(temp_path / "Web_Images_Done"), 'zip', final_dir)
+                        
+                        if os.path.exists(temp_path / "Web_Images_Done.zip"):
+                            with open(temp_path / "Web_Images_Done.zip", "rb") as f:
+                                st.session_state.web_zip_data = f.read()
+                                
                     st.session_state.download_status = 'idle'
-
-    if st.session_state.get('web_zip_data'):
-        st.download_button("📥 TẢI KẾT QUẢ", st.session_state.web_zip_data, "Web_Images_Done.zip", "application/zip", type="primary", use_container_width=True)
+                    
+        if st.session_state.get('web_zip_data'):
+            st.download_button(
+                label="📥 TẢI KẾT QUẢ VỀ MÁY", 
+                data=st.session_state.web_zip_data, 
+                file_name="Web_Images_Done.zip", 
+                mime="application/zip", 
+                use_container_width=True, 
+                type="primary"
+            )
