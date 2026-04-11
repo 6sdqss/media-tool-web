@@ -87,7 +87,13 @@ def resize_image(image_path: Path, output_path: Path, width=None, height=None):
             target_ratio = width / height
             new_w, new_h = (width, int(width / img_ratio)) if img_ratio > target_ratio else (int(height * img_ratio), height)
             
-            resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            # Cập nhật tương thích ngược cho các máy chủ dùng thư viện Pillow cũ
+            try:
+                resample_filter = Image.Resampling.LANCZOS
+            except AttributeError:
+                resample_filter = Image.ANTIALIAS
+                
+            resized = img.resize((new_w, new_h), resample_filter)
             new_img = Image.new("RGB", (width, height), (255, 255, 255))
             new_img.paste(resized, ((width - new_w) // 2, (height - new_h) // 2))
             new_img.save(output_path, "JPEG", quality=95)
