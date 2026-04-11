@@ -58,7 +58,7 @@ def run_mode_local(w, h, drive_service, upload_link, extract_drive_id_and_type):
                     st.error("⚠️ Không tìm thấy ảnh hợp lệ!")
                 else:
                     def process_local_file(file_path):
-                        if not check_pause_cancel_state(): return
+                        # KHÔNG gán check_pause_cancel_state() trong luồng phụ để tránh crash
                         rel_path = file_path.relative_to(raw_dir)
                         if "MACOSX" in str(rel_path): return
                         out_file = final_dir / rel_path.with_suffix('.jpg')
@@ -70,7 +70,8 @@ def run_mode_local(w, h, drive_service, upload_link, extract_drive_id_and_type):
                     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                         futures = [executor.submit(process_local_file, f) for f in valid_files]
                         for future in concurrent.futures.as_completed(futures):
-                            if not check_pause_cancel_state(): break
+                            # Luồng chính kiểm tra trạng thái an toàn
+                            if not check_pause_cancel_state(): break 
                             processed_count += 1
                             progress_bar.progress(processed_count / len(valid_files))
                     
