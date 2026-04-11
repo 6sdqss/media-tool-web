@@ -1,7 +1,7 @@
 import streamlit as st
 from utils import get_gdrive_service, extract_drive_id_and_type
 
-st.set_page_config(page_title="Hệ thống Resize & Auto Upload", layout="centered", page_icon="🖼️")
+st.set_page_config(page_title="Hệ thống Media Pro", layout="centered", page_icon="🖼️")
 
 st.markdown("""
 <style>
@@ -17,16 +17,16 @@ if 'download_status' not in st.session_state:
     st.session_state.download_status = 'idle'
 
 if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
+    st.session_state.logged_in = False
 
-if not st.session_state["logged_in"]:
+if not st.session_state.logged_in:
     st.markdown("<h1 style='text-align: center; color: #1E3A8A; margin-bottom: 20px;'>🔐 ĐĂNG NHẬP HỆ THỐNG</h1>", unsafe_allow_html=True)
     with st.container(border=True):
         username = st.text_input("👤 Tài khoản:")
         password = st.text_input("🔑 Mật khẩu:", type="password")
         if st.button("Đăng nhập", type="primary", use_container_width=True):
             if username == "ducpro" and password == "234766":
-                st.session_state["logged_in"] = True
+                st.session_state.logged_in = True
                 st.rerun()
             else:
                 st.error("❌ Sai tài khoản hoặc mật khẩu. Vui lòng thử lại!")
@@ -35,7 +35,7 @@ if not st.session_state["logged_in"]:
 with st.sidebar:
     st.markdown("### 👤 Xin chào, **ducpro**")
     if st.button("🚪 Đăng xuất"):
-        st.session_state["logged_in"] = False
+        st.session_state.logged_in = False
         st.rerun()
 
 from mode_drive import run_mode_drive
@@ -60,7 +60,7 @@ drive_service = get_gdrive_service()
 if "Google Drive" in mode:
     run_mode_drive(w, h, drive_service)
 elif "máy tính" in mode:
-    upload_link = st.text_input("📤 Link Thư mục Drive ĐÍCH:", placeholder="Bỏ trống nếu chỉ lấy file ZIP")
+    upload_link = st.text_input("📤 Link Thư mục Drive ĐÍCH:", placeholder="Bỏ trống nếu chỉ lấy ZIP")
     run_mode_local(w, h, drive_service, upload_link, extract_drive_id_and_type)
 elif "Web" in mode:
-    run_mode_web(w, h, drive_service, upload_link=None, extract_drive_id_and_type=extract_drive_id_and_type)
+    run_mode_web(w, h, drive_service, extract_drive_id_and_type)
