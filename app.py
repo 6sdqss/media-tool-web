@@ -1,7 +1,6 @@
 import streamlit as st
 from utils import get_gdrive_service, extract_drive_id_and_type
 
-# Phải gọi đầu tiên
 st.set_page_config(page_title="Hệ thống Resize & Auto Upload", layout="centered", page_icon="🖼️")
 
 st.markdown("""
@@ -39,7 +38,6 @@ with st.sidebar:
         st.session_state["logged_in"] = False
         st.rerun()
 
-# Import các logic điều khiển đã tách Module
 from mode_drive import run_mode_drive
 from mode_local import run_mode_local
 from mode_web import run_mode_web
@@ -47,7 +45,7 @@ from mode_web import run_mode_web
 st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>📥 Tool Resize & Auto Upload Pro</h1>", unsafe_allow_html=True)
 
 with st.container(border=True):
-    mode = st.radio("Chế độ:", ["🌐 Tải từ Google Drive", "💻 Tải ảnh từ máy tính (Upload ZIP)", "🛒 Tải từ Web (TGDD / DMX)"], horizontal=True)
+    mode = st.radio("Chế độ:", ["🌐 Tải từ Google Drive", "💻 Tải ảnh từ máy tính", "🛒 Tải từ Web (TGDD / DMX)"], horizontal=True)
     size_options = {
         "Tải & resize 1020x680": (1020, 680),
         "Tải & resize 1020x570": (1020, 570),
@@ -59,12 +57,10 @@ with st.container(border=True):
 st.write("")
 drive_service = get_gdrive_service()
 
-# BỘ ĐIỀU HƯỚNG TỚI CÁC FILE MODULE
 if "Google Drive" in mode:
     run_mode_drive(w, h, drive_service)
-elif "máy tính" in mode or "Upload ZIP" in mode:
-    # Giao diện của Local có thêm Upload Link nên cần lấy riêng ở đây
-    upload_link = st.text_input("📤 Link Thư mục Drive ĐÍCH (Nếu muốn Auto Upload):", placeholder="Bỏ trống nếu chỉ lấy file ZIP")
+elif "máy tính" in mode:
+    upload_link = st.text_input("📤 Link Thư mục Drive ĐÍCH:", placeholder="Bỏ trống nếu chỉ lấy file ZIP")
     run_mode_local(w, h, drive_service, upload_link, extract_drive_id_and_type)
 elif "Web" in mode:
     run_mode_web(w, h, drive_service, upload_link=None, extract_drive_id_and_type=extract_drive_id_and_type)
