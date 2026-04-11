@@ -80,8 +80,11 @@ def get_gallery_image_urls(product_url):
         img_urls = []
         for img in soup.find_all("img"):
             src = img.get("data-src") or img.get("src")
-            if src and "750x500" in src:
-                img_urls.append(re.sub(r"-750x500", "", urljoin(product_url, src)))
+            if src:
+                if "-750x500" in src or "-800x800" in src:
+                    img_urls.append(re.sub(r"-\d+x\d+", "", urljoin(product_url, src)))
+                elif ("/product/" in src or "/dien-thoai/" in src) and (".jpg" in src or ".png" in src):
+                    img_urls.append(urljoin(product_url, src))
         return list(set(img_urls))
     except: return []
 
@@ -90,6 +93,8 @@ def run_mode_web(w, h, drive_service, extract_drive_id_and_type):
     
     if "web_scanned_data" not in st.session_state:
         st.session_state["web_scanned_data"] = []
+    if "web_zip_data" not in st.session_state:
+        st.session_state.web_zip_data = None
 
     links_text = st.text_area("🔗 Dán Link sản phẩm (Mỗi link 1 dòng):", height=100)
     
@@ -121,7 +126,6 @@ def run_mode_web(w, h, drive_service, extract_drive_id_and_type):
             cols = st.columns(3)
             for idx_color, color in enumerate(item["colors"]):
                 with cols[idx_color % 3]:
-                    # ĐẢM BẢO KEY LÀ ĐỘC NHẤT, KHÔNG BỊ TRÙNG NHAU
                     unique_key = f"cb_{idx_item}_{idx_color}_{hash(item['original_link'])}"
                     if st.checkbox(color["name"], value=True, key=unique_key):
                         selected_tasks.append({"product_name": item["product_name"], "color_name": color["name"], "link": color["link"]})
@@ -131,6 +135,8 @@ def run_mode_web(w, h, drive_service, extract_drive_id_and_type):
         
         if st.button("🚀 BẮT ĐẦU TẢI & RESIZE", type="primary", use_container_width=True):
             st.session_state.download_status = 'running'
+            st.session_state.web_zip_data = None
+            
             if not selected_tasks:
                 st.error("⚠️ Bạn chưa chọn màu!")
                 st.session_state.download_status = 'idle'
@@ -196,7 +202,12 @@ def run_mode_web(w, h, drive_service, extract_drive_id_and_type):
 
                     status_text.success("🎉 Hoàn tất!")
                     shutil.make_archive(str(temp_path / "Web_Images_Done"), 'zip', final_dir)
+                    
                     if os.path.exists(temp_path / "Web_Images_Done.zip"):
                         with open(temp_path / "Web_Images_Done.zip", "rb") as f:
-                            st.download_button("📥 TẢI KẾT QUẢ", f, "Web_Images_Done.zip", "application/zip", use_container_width=True)
+                            st.session_state.web_zip_data = f.read()
+                            
                     st.session_state.download_status = 'idle'
+
+    if st.session_state.get('web_zip_data'):
+        st.download_button("📥 TẢI KẾT QUẢ", st.session_state.web_zip_data, "Web_Images_Done.zip", "application/zip", type="primary", use_container_width=True)
