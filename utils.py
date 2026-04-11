@@ -18,15 +18,13 @@ def get_gdrive_service():
             )
             return build('drive', 'v3', credentials=creds)
     except: pass
-
     try:
         if os.path.exists('credentials.json'):
             creds = service_account.Credentials.from_service_account_file(
                 'credentials.json', scopes=['https://www.googleapis.com/auth/drive']
             )
             return build('drive', 'v3', credentials=creds)
-    except Exception as e:
-        print(f"Lỗi API Google: {e}")
+    except: pass
     return None
 
 def create_drive_folder(service, folder_name, parent_id):
@@ -58,7 +56,7 @@ def get_drive_name(file_id: str, kind: str):
             match = re.search(r"<title>(.*?) - Google Drive</title>", resp.text)
             if match:
                 name = re.sub(r'[\\/*?:"<>|]', "", match.group(1)).strip()
-                return os.path.splitext(name)[0] if kind == "file" else name
+                return name.replace(" - Google Drive", "")
     except: pass
     return file_id
 
@@ -88,12 +86,13 @@ def resize_image(image_path: Path, output_path: Path, width=None, height=None):
             img_ratio = img.width / img.height
             target_ratio = width / height
             new_w, new_h = (width, int(width / img_ratio)) if img_ratio > target_ratio else (int(height * img_ratio), height)
-
+            
             resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
             new_img = Image.new("RGB", (width, height), (255, 255, 255))
             new_img.paste(resized, ((width - new_w) // 2, (height - new_h) // 2))
             new_img.save(output_path, "JPEG", quality=95)
-    except Exception as e: print(f"Lỗi resize: {e}")
+    except Exception as e:
+        print(f"Resize error: {e}")
 
 def ignore_system_files(path: Path):
     return path.name.startswith("._") or path.name == ".DS_Store" or path.name.startswith("__MACOSX")
