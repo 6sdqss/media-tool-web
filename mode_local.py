@@ -1,31 +1,30 @@
 import streamlit as st
-import time
+import os
 import shutil
 import tempfile
 import zipfile
+import time
 import concurrent.futures
 from pathlib import Path
 from utils import (resize_image, ignore_system_files, create_drive_folder, 
                    upload_to_drive, check_pause_cancel_state, render_control_buttons)
 
 def run_mode_local(w, h, drive_service, upload_link, extract_drive_id_and_type):
-    st.info("💡 **HƯỚNG DẪN:** Nén tất cả các thư mục cần làm thành **1 file .zip hoặc .rar** rồi tải lên đây.")
-    
-    uploaded_file = st.file_uploader("📦 Tải lên file ZIP hoặc RAR chứa các thư mục ảnh:", type=['zip', 'rar'])
+    st.info("💡 **HƯỚNG DẪN:** Nén các thư mục thành **1 file .zip hoặc .rar** rồi tải lên đây.")
+    uploaded_file = st.file_uploader("📦 Tải file ZIP/RAR:", type=['zip', 'rar'])
 
     if st.button("🚀 BẮT ĐẦU RESIZE LOCAL", type="primary", use_container_width=True):
         st.session_state.download_status = 'running'
         if not uploaded_file:
-            st.error("⚠️ Bạn chưa tải file lên!")
+            st.error("⚠️ Bạn chưa tải file nào lên!")
             st.session_state.download_status = 'idle'
             return
 
         render_control_buttons()
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            
-            raw_dir = temp_path / "RAW_EXTRACTED"
-            final_dir = temp_path / "FINAL_RESIZED"
+            raw_dir = temp_path / "RAW"
+            final_dir = temp_path / "FINAL"
             raw_dir.mkdir(exist_ok=True)
             final_dir.mkdir(exist_ok=True)
             
@@ -54,18 +53,13 @@ def run_mode_local(w, h, drive_service, upload_link, extract_drive_id_and_type):
             if not valid_files:
                 st.error("⚠️ Không tìm thấy ảnh hợp lệ!")
             else:
-                status_text.info(f"⏳ Đang xử lý Đa luồng {len(valid_files)} ảnh...")
-                
                 def process_local_file(file_path):
                     if not check_pause_cancel_state(): return
                     rel_path = file_path.relative_to(raw_dir)
                     if "MACOSX" in str(rel_path): return
-                    
-                    # Đổi đuôi thành jpg để lưu vào FINAL
                     out_file = final_dir / rel_path.with_suffix('.jpg')
                     out_file.parent.mkdir(parents=True, exist_ok=True)
-                    try:
-                        resize_image(file_path, out_file, w, h)
+                    try: resize_image(file_path, out_file, w, h)
                     except: pass
 
                 processed_count = 0
@@ -82,8 +76,7 @@ def run_mode_local(w, h, drive_service, upload_link, extract_drive_id_and_type):
                     try:
                         root_folder_id = create_drive_folder(drive_service, f"Local_Resized_{int(time.time())}", target_folder_id)
                         folder_cache = {"": root_folder_id, ".": root_folder_id}
-                        jpg_files = list(final_dir.rglob("*.jpg"))
-                        for idx, img in enumerate(jpg_files):
+                        for img in final_dir.rglob("*.jpg"):
                             if not check_pause_cancel_state(): break
                             rel_dir_str = str(img.parent.relative_to(final_dir))
                             if rel_dir_str not in folder_cache:
@@ -97,11 +90,9 @@ def run_mode_local(w, h, drive_service, upload_link, extract_drive_id_and_type):
                             upload_to_drive(drive_service, img, folder_cache[rel_dir_str])
                     except: pass
 
-            if st.session_state.download_status == 'cancelled':
-                status_text.error("🚫 Đã hủy quá trình!")
-            else:
-                status_text.success("🎉 Hoàn tất!")
-                shutil.make_archive(temp_path / "Resized_Finished", 'zip', final_dir)
-                with open(temp_path / "Resized_Finished.zip", "rb") as f:
-                    st.download_button("📥 TẢI KẾT QUẢ", f, file_name="Resized_Finished.zip", mime="application/zip", use_container_width=True)
+            status_text.success("🎉 Hoàn tất!")
+            shutil.make_archive(str(temp_path / "Local_Images_Done"), 'zip', final_dir)
+            if os.path.exists(temp_path / "Local_Images_Done.zip"):
+                with open(temp_path / "Local_Images_Done.zip", "rb") as f:
+                    st.download_button("📥 TẢI BẢN LƯU (FILE ZIP)", f, "Local_Images_Done.zip", use_container_width=True)
             st.session_state.download_status = 'idle'
