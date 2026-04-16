@@ -5,97 +5,76 @@ import time
 import requests
 import shutil
 import tempfile
+import zipfile
 import concurrent.futures
 from pathlib import Path
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 
 from utils import (
-    resize_image, create_drive_folder, upload_to_drive,
-    check_pause_cancel_state, render_control_buttons
+    resize_image, check_pause_cancel_state, render_control_buttons,
 )
 
-# ─────────────────────────────────────────────────────────────
-# COOKIES & HEADERS CHUNG
-# ─────────────────────────────────────────────────────────────
-RAW_COOKIES = [
-    {"domain": ".thegioididong.com", "name": "_ce.clock_data",  "value": "-110%2C113.161.59.60%2C1%2C91e1a2a41c0741f7f47615ab9de2fb8a%2CChrome%2CVN"},
-    {"domain": ".thegioididong.com", "name": "_ce.s",            "value": "v~10b349a1bfb597f2fbfafdd33af1d88e35768560~lcw~1775808302291~vir~returning~lva~1775788787457~vpv~198~v11ls~8496c620-34b3-11f1-b933-8983fd7f9723"},
-    {"domain": ".thegioididong.com", "name": "cebs",             "value": "1"},
-    {"domain": ".thegioididong.com", "name": "cebsp_",           "value": "32"},
-    {"domain": ".thegioididong.com", "name": "mwgsp",            "value": "1"},
-    {"domain": "www.thegioididong.com", "name": "ASP.NET_SessionId", "value": "zgo0wxmkgvnqbqub0lkreuon"},
-    {"domain": "www.thegioididong.com", "name": "SvID",          "value": "beline26122|adivM|adhi9"},
-    {"domain": "www.thegioididong.com", "name": "TBMCookie_3209819802479625248", "value": "272331001775808103SbF4f4kGHIEXWQ8vk5fTCgPn/0Q="},
-]
-TGDD_COOKIES = {c["name"]: c["value"] for c in RAW_COOKIES}
-
-BASE_HEADERS = {
+# ══════════════════════════════════════════════════════════════
+# COOKIES & SESSION
+# ══════════════════════════════════════════════════════════════
+_COOKIES = {
+    "_ce.clock_data": "-110%2C113.161.59.60%2C1%2C91e1a2a41c0741f7f47615ab9de2fb8a%2CChrome%2CVN",
+    "_ce.s": "v~10b349a1bfb597f2fbfafdd33af1d88e35768560~lcw~1775808302291~vir~returning",
+    "cebs": "1", "cebsp_": "32", "mwgsp": "1",
+    "ASP.NET_SessionId": "zgo0wxmkgvnqbqub0lkreuon",
+    "SvID": "beline26122|adivM|adhi9",
+}
+_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     ),
     "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
 }
+_SESSION = requests.Session()
+_SESSION.headers.update(_HEADERS)
 
-IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
-SESSION = requests.Session()
-SESSION.headers.update(BASE_HEADERS)
+IMG_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 
 
-# ─────────────────────────────────────────────────────────────
-# TIỆN ÍCH
-# ─────────────────────────────────────────────────────────────
-def clean_name(name: str) -> str:
-    """Làm sạch tên tránh ký tự đặc biệt trong tên file/folder."""
+# ══════════════════════════════════════════════════════════════
+# HELPERS
+# ══════════════════════════════════════════════════════════════
+def _clean(name: str) -> str:
     name = re.sub(r'[\\/:\*?"<>|]', "", name)
-    name = re.sub(r"\s+", " ", name).strip()
-    return name or "San_pham"
+    return re.sub(r"\s+", " ", name).strip() or "San_pham"
 
 
-def _get(url: str, timeout=12) -> requests.Response | None:
-    """GET an toàn với cookie TGDD."""
+def _get(url: str, timeout=12):
     try:
-        resp = SESSION.get(url, cookies=TGDD_COOKIES, timeout=timeout, allow_redirects=True)
-        if resp.status_code == 200:
-            return resp
+        r = _SESSION.get(url, cookies=_COOKIES, timeout=timeout, allow_redirects=True)
+        return r if r.status_code == 200 else None
     except Exception:
-        pass
-    return None
+        return None
 
 
-# ─────────────────────────────────────────────────────────────
-# PHÂN TÍCH URL
-# ─────────────────────────────────────────────────────────────
-def resolve_redirect_url(url: str) -> str:
-    """Theo redirect và trả về URL thực tế của sản phẩm."""
+def resolve_url(url: str) -> str:
     try:
-        resp = SESSION.get(
-            url, headers=BASE_HEADERS, cookies=TGDD_COOKIES,
-            allow_redirects=True, timeout=15
-        )
-        if resp.status_code == 200:
-            soup = BeautifulSoup(resp.text, "html.parser")
+        r = _SESSION.get(url, cookies=_COOKIES, allow_redirects=True, timeout=15)
+        if r.status_code == 200:
+            soup = BeautifulSoup(r.text, "html.parser")
             meta = soup.find("meta", attrs={"http-equiv": "refresh"})
             if meta:
-                content = meta.get("content", "")
-                if "url=" in content.lower():
-                    return urljoin(url, content.split("url=")[-1].strip("'\""))
-            return resp.url
+                c = meta.get("content", "")
+                if "url=" in c.lower():
+                    return urljoin(url, c.split("url=")[-1].strip("'\""))
+            return r.url
     except Exception:
         pass
     return url
 
 
-def get_item_name(main_url: str) -> str:
-    """Lấy tên sản phẩm từ thẻ <h1> hoặc <title>."""
-    resp = _get(main_url)
-    if not resp:
+def get_product_name(url: str) -> str:
+    r = _get(url)
+    if not r:
         return "San_pham_khong_ten"
-    soup = BeautifulSoup(resp.text, "html.parser")
-
+    soup = BeautifulSoup(r.text, "html.parser")
     name = ""
     h1 = soup.find("h1")
     if h1:
@@ -105,323 +84,281 @@ def get_item_name(main_url: str) -> str:
         if m:
             name = m.group(1)
         else:
-            title_tag = soup.find("title")
-            name = title_tag.text.split("|")[0].strip() if title_tag else ""
-
-    # Bỏ các cụm quảng cáo phổ biến
+            t = soup.find("title")
+            name = t.text.split("|")[0].strip() if t else ""
     name = re.sub(
         r"(,?\s*(giá tốt|thu cũ.*|trợ giá.*|góp 0%.*|chính hãng.*|bảo hành.*))",
-        "", name, flags=re.IGNORECASE
+        "", name, flags=re.IGNORECASE,
     )
-    return clean_name(name) or "San_pham_khong_ten"
+    return _clean(name) or "San_pham_khong_ten"
 
 
-def get_color_links_and_names(main_url: str) -> list[dict]:
-    """Trích xuất danh sách màu sắc và link tương ứng."""
-    resp = _get(main_url)
-    if not resp:
-        return [{"name": "Mac_dinh", "link": main_url}]
-
-    soup      = BeautifulSoup(resp.text, "html.parser")
-    base_path = urlparse(main_url).path
-    color_data = []
-    seen_links = set()
-
+def get_colors(url: str) -> list[dict]:
+    r = _get(url)
+    if not r:
+        return [{"name": "Mac_dinh", "link": url}]
+    soup = BeautifulSoup(r.text, "html.parser")
+    base = urlparse(url).path
+    seen, out = set(), []
     for a in soup.find_all("a", href=True):
         href = a["href"]
-        # Link màu thường chứa base path + ?code=
-        if base_path in href and "?code=" in href:
-            c_name = a.get_text(strip=True)
-            c_link = urljoin(main_url, href)
-            if c_link not in seen_links and c_name:
-                color_data.append({"name": clean_name(c_name), "link": c_link})
-                seen_links.add(c_link)
-
-    return color_data if color_data else [{"name": "Mac_dinh", "link": main_url}]
+        if base in href and "?code=" in href:
+            link = urljoin(url, href)
+            nm   = _clean(a.get_text(strip=True))
+            if link not in seen and nm:
+                out.append({"name": nm, "link": link})
+                seen.add(link)
+    return out if out else [{"name": "Mac_dinh", "link": url}]
 
 
-def get_gallery_image_urls(product_url: str) -> list[str]:
-    """
-    Lấy danh sách URL ảnh gallery của sản phẩm.
-    Ưu tiên ảnh độ phân giải cao nhất, loại bỏ ảnh trùng lặp.
-    """
-    resp = _get(product_url)
-    if not resp:
+def get_images(url: str) -> list[str]:
+    r = _get(url)
+    if not r:
         return []
-
-    soup     = BeautifulSoup(resp.text, "html.parser")
-    img_urls = set()
-
+    soup = BeautifulSoup(r.text, "html.parser")
+    found = set()
     for img in soup.find_all("img"):
         src = img.get("data-src") or img.get("data-original") or img.get("src") or ""
         if not src:
             continue
-        src = urljoin(product_url, src)
-
-        # Chuẩn hóa: xóa suffix kích thước như -750x500, -800x800
+        src = urljoin(url, src)
+        # Chuẩn hóa — xóa suffix kích thước
         src_clean = re.sub(r"-\d{3,4}x\d{3,4}", "", src)
-
-        # Chỉ lấy ảnh sản phẩm thật (lọc icon, logo, banner)
-        parsed = urlparse(src_clean)
-        if not any(ext in parsed.path.lower() for ext in IMAGE_EXTS):
+        p = urlparse(src_clean)
+        # Chỉ nhận ảnh sản phẩm thực sự
+        if not any(src_clean.lower().endswith(e) for e in IMG_EXTS):
             continue
-        if any(skip in parsed.path.lower() for skip in ["/icon/", "/logo/", "/banner/", "placeholder"]):
+        if any(x in p.path.lower() for x in ["/icon/", "/logo/", "/banner/", "placeholder", "loading"]):
             continue
-        if (
-            "/product/" in src_clean
-            or "/dien-thoai/" in src_clean
-            or "/may-tinh-bang/" in src_clean
-            or "/laptop/" in src_clean
-            or "-750x500" in src
-            or "-800x800" in src
-            or "-1200x1200" in src
-        ):
-            img_urls.add(src_clean)
-
-    return list(img_urls)
+        if any(x in src for x in ["/product/", "/dien-thoai/", "/may-tinh-bang/",
+                                   "/laptop/", "-750x500", "-800x800", "-1200x1200"]):
+            found.add(src_clean)
+    return list(found)
 
 
-# ─────────────────────────────────────────────────────────────
-# MODE CHÍNH
-# ─────────────────────────────────────────────────────────────
-def run_mode_web(w, h, drive_service, extract_drive_id_and_type):
-    st.info(
-        "💡 **HƯỚNG DẪN:** Dán link sản phẩm từ TGDD hoặc DMX.\n"
-        "Bấm **Quét** để lấy danh sách màu, sau đó chọn màu và bấm **Tải & Resize**."
-    )
+def _make_zip(final_dir: Path, zip_path: Path):
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in final_dir.rglob("*"):
+            if f.is_file() and f.stat().st_size > 0:
+                zf.write(f, f.relative_to(final_dir))
 
-    if "web_scanned_data" not in st.session_state:
-        st.session_state.web_scanned_data = []
+
+# ══════════════════════════════════════════════════════════════
+# MAIN
+# ══════════════════════════════════════════════════════════════
+def run_mode_web(w, h):
+    if "web_scanned" not in st.session_state:
+        st.session_state.web_scanned = []
     if "web_zip_data" not in st.session_state:
         st.session_state.web_zip_data = None
 
+    # ── INFO ─────────────────────────────────────────────────
+    st.markdown("""
+    <div class="guide-box" style="padding:12px 16px;font-size:.86rem">
+        💡 <b>Cách dùng:</b> Dán link sản phẩm TGDD / DMX →
+        Bấm <b>Quét màu</b> → Tick chọn màu → <b>Tải & Resize</b>
+    </div>""", unsafe_allow_html=True)
+
+    # ── INPUT LINKS ──────────────────────────────────────────
+    st.markdown('<div class="sec-title">🔗 LINK SẢN PHẨM</div>', unsafe_allow_html=True)
     links_text = st.text_area(
-        "🔗 Dán link sản phẩm (mỗi link 1 dòng):",
-        height=110,
-        placeholder="https://www.thegioididong.com/dtdd/...\nhttps://www.dienmayxanh.com/..."
+        "Links:", height=110,
+        placeholder=(
+            "https://www.thegioididong.com/dtdd/samsung-galaxy-s25\n"
+            "https://www.dienmayxanh.com/tivi/..."
+        ),
+        label_visibility="collapsed",
     )
 
-    # ── NÚT QUÉT ─────────────────────────────────
-    if st.button("🔍 QUÉT SẢN PHẨM & MÀU", use_container_width=True, key="btn_web_scan"):
+    # ── NÚT QUÉT ─────────────────────────────────────────────
+    if st.button("🔍  QUÉT SẢN PHẨM & MÀU", use_container_width=True, key="btn_scan"):
         links = [l.strip() for l in links_text.splitlines() if l.strip()]
         if not links:
             st.error("⚠️ Vui lòng dán ít nhất 1 link!")
         else:
-            st.session_state.web_scanned_data = []
-            st.session_state.web_zip_data     = None
+            st.session_state.web_scanned  = []
+            st.session_state.web_zip_data = None
 
             with st.spinner("Đang quét sản phẩm và màu sắc..."):
-                def scan_one(link: str) -> dict:
-                    real = resolve_redirect_url(link)
+                def _scan(link):
+                    real = resolve_url(link)
                     return {
-                        "original_link": link,
-                        "real_link":     real,
-                        "product_name":  get_item_name(real),
-                        "colors":        get_color_links_and_names(real),
+                        "original": link,
+                        "real":     real,
+                        "name":     get_product_name(real),
+                        "colors":   get_colors(real),
                     }
-
+                order = {l: i for i, l in enumerate(links)}
                 results = []
                 with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
-                    futs = {ex.submit(scan_one, l): l for l in links}
+                    futs = {ex.submit(_scan, l): l for l in links}
                     for f in concurrent.futures.as_completed(futs):
                         try:
                             results.append(f.result())
                         except Exception:
                             pass
+                results.sort(key=lambda r: order.get(r["original"], 999))
+                st.session_state.web_scanned = results
 
-                # Giữ thứ tự theo link gốc
-                order = {l: i for i, l in enumerate(links)}
-                results.sort(key=lambda r: order.get(r["original_link"], 999))
-                st.session_state.web_scanned_data = results
-                st.success(f"✅ Quét xong {len(results)} sản phẩm! Chọn màu bên dưới.")
+            st.success(f"✅ Quét xong {len(results)} sản phẩm!")
 
-    # ── HIỆN DANH SÁCH MÀU ───────────────────────
-    if st.session_state.web_scanned_data:
-        st.markdown("---")
-        st.markdown("### 🎨 CHỌN MÀU CẦN TẢI")
+    # ── CHỌN MÀU ─────────────────────────────────────────────
+    selected_tasks: list[dict] = []
 
-        selected_tasks = []
-        for idx_item, item in enumerate(st.session_state.web_scanned_data):
-            with st.expander(f"📦 {item['product_name']}  ({len(item['colors'])} màu)", expanded=True):
-                cols = st.columns(min(len(item["colors"]), 4))
-                for idx_color, color in enumerate(item["colors"]):
-                    key = f"cb_{idx_item}_{idx_color}_{hash(item['original_link'])}"
-                    with cols[idx_color % len(cols)]:
+    if st.session_state.web_scanned:
+        st.markdown('<div class="sec-title">🎨 CHỌN MÀU CẦN TẢI</div>', unsafe_allow_html=True)
+
+        for idx_p, item in enumerate(st.session_state.web_scanned):
+            with st.expander(f"📦  {item['name']}  —  {len(item['colors'])} màu", expanded=True):
+                ncols = min(len(item["colors"]), 4)
+                cols  = st.columns(ncols)
+                for idx_c, color in enumerate(item["colors"]):
+                    key = f"cb_{idx_p}_{idx_c}_{hash(item['original'])}"
+                    with cols[idx_c % ncols]:
                         if st.checkbox(color["name"], value=True, key=key):
                             selected_tasks.append({
-                                "product_name": item["product_name"],
-                                "color_name":   color["name"],
-                                "link":         color["link"],
+                                "product": item["name"],
+                                "color":   color["name"],
+                                "link":    color["link"],
                             })
 
-        st.markdown("---")
-        upload_link_web = st.text_input(
-            "📤 Link Thư mục Drive ĐÍCH *(tùy chọn)*:",
-            placeholder="Bỏ trống nếu chỉ muốn tải ZIP về máy"
-        )
+        st.markdown(f"**Đã chọn: {len(selected_tasks)} màu**")
 
-        # ── NÚT TẢI & RESIZE ─────────────────────
-        if st.button("🚀 BẮT ĐẦU TẢI & RESIZE", type="primary", use_container_width=True, key="btn_web_start"):
+        # ── NÚT TẢI & RESIZE ──────────────────────────────
+        if st.button("🚀  BẮT ĐẦU TẢI & RESIZE", type="primary", use_container_width=True, key="btn_web_go"):
             if not selected_tasks:
                 st.error("⚠️ Chưa chọn màu nào!")
-            else:
-                st.session_state.download_status = "running"
-                st.session_state.web_zip_data    = None
+                return
 
-                render_control_buttons()
+            st.session_state.download_status = "running"
+            st.session_state.web_zip_data    = None
 
-                target_folder_id, _ = (
-                    extract_drive_id_and_type(upload_link_web)
-                    if upload_link_web else (None, None)
+            render_control_buttons()
+            status_ph = st.empty()
+            prog_ph   = st.progress(0)
+            log_ph    = st.empty()
+            logs: list[str] = []
+
+            def log(msg: str):
+                logs.append(msg)
+                log_ph.markdown(
+                    "<div class='log-box'>" + "<br>".join(logs[-25:]) + "</div>",
+                    unsafe_allow_html=True,
                 )
 
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    temp_path = Path(temp_dir)
-                    raw_dir   = temp_path / "RAW"
-                    final_dir = temp_path / "FINAL"
+            with tempfile.TemporaryDirectory() as td:
+                temp  = Path(td)
+                raw   = temp / "RAW"
+                final = temp / "FINAL"
+                raw.mkdir();  final.mkdir()
 
-                    status_text  = st.empty()
-                    progress_bar = st.progress(0)
-                    log_box      = st.empty()
-                    logs         = []
+                total = len(selected_tasks)
 
-                    def add_log(msg: str):
-                        logs.append(msg)
-                        log_box.markdown(
-                            "<div class='log-box'>" +
-                            "<br>".join(logs[-20:]) +
-                            "</div>",
-                            unsafe_allow_html=True
-                        )
+                def _download_img(img_url: str, save_raw: Path, save_final: Path) -> bool:
+                    """Tải 1 ảnh + resize — chạy trong thread."""
+                    try:
+                        name = os.path.basename(img_url.split("?")[0])
+                        if not any(name.lower().endswith(e) for e in IMG_EXTS):
+                            name += ".jpg"
+                        sp  = save_raw / name
+                        out = save_final / (sp.stem + ".jpg")
 
-                    total = len(selected_tasks)
-
-                    def download_and_resize(img_url: str, c_raw: Path, c_final: Path):
-                        """Tải 1 ảnh và resize — chạy trong thread pool."""
-                        try:
-                            img_name = os.path.basename(img_url.split("?")[0])
-                            # Đảm bảo tên file có extension
-                            if not any(img_name.lower().endswith(e) for e in IMAGE_EXTS):
-                                img_name += ".jpg"
-                            save_path = c_raw / img_name
-                            out_file  = c_final / (save_path.stem + ".jpg")
-
-                            # Tải ảnh với retry
-                            for attempt in range(3):
-                                try:
-                                    data = SESSION.get(
-                                        img_url, cookies=TGDD_COOKIES, timeout=15, stream=True
-                                    )
-                                    if data.status_code == 200:
-                                        with open(save_path, "wb") as f:
-                                            for chunk in data.iter_content(8192):
+                        for _ in range(3):
+                            try:
+                                r = _SESSION.get(img_url, cookies=_COOKIES, timeout=15, stream=True)
+                                if r.status_code == 200:
+                                    with open(sp, "wb") as f:
+                                        for chunk in r.iter_content(8192):
+                                            if chunk:
                                                 f.write(chunk)
-                                        break
-                                except Exception:
-                                    time.sleep(1)
-
-                            if save_path.exists() and save_path.stat().st_size > 512:
-                                resize_image(save_path, out_file, w, h)
-                                return True
-                        except Exception:
-                            pass
-                        return False
-
-                    for i, task in enumerate(selected_tasks):
-                        if not check_pause_cancel_state():
-                            break
-
-                        p_name = task["product_name"]
-                        c_name = task["color_name"]
-                        c_link = task["link"]
-
-                        status_text.info(f"⏳ [{i+1}/{total}] Đang xử lý: **{p_name}** — *{c_name}*")
-
-                        c_raw   = raw_dir   / p_name / c_name
-                        c_final = final_dir / p_name / c_name
-                        c_raw.mkdir(parents=True, exist_ok=True)
-                        c_final.mkdir(parents=True, exist_ok=True)
-
-                        img_urls = get_gallery_image_urls(c_link)
-                        if not img_urls:
-                            add_log(f"⚠️ Không tìm thấy ảnh: {p_name} / {c_name}")
-                            progress_bar.progress((i + 1) / total)
-                            continue
-
-                        add_log(f"🔎 {p_name} / {c_name}: {len(img_urls)} ảnh")
-
-                        ok_count = 0
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
-                            futs = {
-                                ex.submit(download_and_resize, url, c_raw, c_final): url
-                                for url in img_urls
-                            }
-                            for fut in concurrent.futures.as_completed(futs):
-                                if not check_pause_cancel_state():
                                     break
-                                if fut.result():
-                                    ok_count += 1
+                            except Exception:
+                                time.sleep(0.8)
 
-                        add_log(f"✅ {p_name}/{c_name}: {ok_count}/{len(img_urls)} ảnh OK")
-                        progress_bar.progress((i + 1) / total)
+                        if sp.exists() and sp.stat().st_size > 512:
+                            resize_image(sp, out, w, h)
+                            return out.exists() and out.stat().st_size > 0
+                    except Exception:
+                        pass
+                    return False
 
-                    # ── UPLOAD DRIVE ──────────────────────
-                    if target_folder_id and drive_service and check_pause_cancel_state():
-                        status_text.info("📤 Đang upload lên Google Drive...")
-                        try:
-                            root_fid = create_drive_folder(
-                                drive_service,
-                                f"Web_Resized_{int(time.time())}",
-                                target_folder_id
-                            )
-                            folder_cache = {"": root_fid, ".": root_fid}
+                for i, task in enumerate(selected_tasks):
+                    if not check_pause_cancel_state():
+                        break
 
-                            for img in final_dir.rglob("*.jpg"):
-                                if not check_pause_cancel_state():
-                                    break
-                                rel_dir = str(img.parent.relative_to(final_dir))
-                                if rel_dir not in folder_cache:
-                                    current_parent = root_fid
-                                    current_path   = ""
-                                    for part in Path(rel_dir).parts:
-                                        current_path = (
-                                            os.path.join(current_path, part)
-                                            if current_path else part
-                                        )
-                                        if current_path not in folder_cache:
-                                            folder_cache[current_path] = create_drive_folder(
-                                                drive_service, part, current_parent
-                                            )
-                                        current_parent = folder_cache[current_path]
-                                upload_to_drive(drive_service, img, folder_cache[rel_dir])
-                                add_log(f"📤 {img.name}")
-                        except Exception as ue:
-                            add_log(f"⚠️ Upload lỗi: {ue}")
+                    p_name = task["product"]
+                    c_name = task["color"]
+                    c_link = task["link"]
 
-                    # ── KẾT THÚC & TẠO ZIP ───────────────
-                    if st.session_state.download_status == "cancelled":
-                        status_text.warning("🚫 Đã hủy! Ảnh đã xử lý vẫn có thể tải.")
+                    status_ph.info(f"⏳  [{i+1}/{total}]  **{p_name}** — *{c_name}*")
+                    log(f"▶  {p_name} / {c_name}")
+
+                    c_raw   = raw   / p_name / c_name
+                    c_final = final / p_name / c_name
+                    c_raw.mkdir(parents=True, exist_ok=True)
+                    c_final.mkdir(parents=True, exist_ok=True)
+
+                    # Lấy danh sách ảnh — nếu lỗi thì bỏ qua
+                    try:
+                        img_urls = get_images(c_link)
+                    except Exception:
+                        img_urls = []
+
+                    if not img_urls:
+                        log(f"  ⚠️  Không tìm thấy ảnh — bỏ qua")
+                        prog_ph.progress((i + 1) / total)
+                        continue
+
+                    log(f"  🔎  {len(img_urls)} ảnh tìm thấy")
+
+                    ok_imgs = 0
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+                        futs = {ex.submit(_download_img, u, c_raw, c_final): u for u in img_urls}
+                        for fut in concurrent.futures.as_completed(futs):
+                            if not check_pause_cancel_state():
+                                break
+                            if fut.result():
+                                ok_imgs += 1
+
+                    if ok_imgs > 0:
+                        log(f"  ✅  {ok_imgs}/{len(img_urls)} ảnh OK")
                     else:
-                        status_text.success("🎉 HOÀN TẤT toàn bộ!")
+                        log(f"  ❌  Không tải được ảnh nào — bỏ qua màu này")
 
-                    zip_base = str(temp_path / "Web_Images_Done")
-                    shutil.make_archive(zip_base, "zip", final_dir)
-                    zip_path = Path(zip_base + ".zip")
+                    prog_ph.progress((i + 1) / total)
 
-                    if zip_path.exists() and zip_path.stat().st_size > 22:
+                # ── ĐÓNG GÓI ZIP ────────────────────────────
+                all_out = [f for f in final.rglob("*") if f.is_file() and f.stat().st_size > 0]
+
+                if all_out:
+                    if st.session_state.download_status == "cancelled":
+                        status_ph.warning(f"🚫 Đã hủy — {len(all_out)} ảnh đã xử lý, vẫn có thể tải.")
+                    else:
+                        status_ph.success(f"🎉 HOÀN TẤT — {len(all_out)} ảnh trong ZIP!")
+
+                    zip_path = temp / "Web_Images_Done.zip"
+                    _make_zip(final, zip_path)
+
+                    if zip_path.exists() and zip_path.stat().st_size > 100:
                         with open(zip_path, "rb") as f:
                             st.session_state.web_zip_data = f.read()
+                        log(f"📦  ZIP: {zip_path.stat().st_size // 1024} KB")
+                    else:
+                        log("⚠️  ZIP rỗng bất thường")
+                else:
+                    status_ph.error("❌ Không có ảnh nào tải được!")
 
-                    st.session_state.download_status = "idle"
+                st.session_state.download_status = "idle"
 
-    # ── NÚT TẢI ZIP ──────────────────────────────
+    # ── NÚT TẢI ZIP ─────────────────────────────────────────
     if st.session_state.get("web_zip_data"):
+        st.success("✅  Sẵn sàng tải xuống!")
         st.download_button(
-            label="📥 TẢI KẾT QUẢ VỀ MÁY (FILE ZIP)",
+            label="📥  TẢI KẾT QUẢ VỀ MÁY (FILE ZIP)",
             data=st.session_state.web_zip_data,
             file_name="Web_Images_Done.zip",
             mime="application/zip",
             type="primary",
             use_container_width=True,
-            key="dl_web_zip"
+            key="dl_web",
         )
