@@ -224,7 +224,8 @@ with tab1:
             "📐 Kích thước Resize:", list(SIZE_OPTIONS.keys()), key="sz_drive",
             help="Ảnh giữ tỉ lệ gốc, phần thừa fill trắng — không bao giờ méo ảnh")]
     st.write("")
-    run_mode_drive(w1, h1)
+    # THÊM drive_service VÀO ĐÂY:
+    run_mode_drive(w1, h1, drive_service)
 
 # ── TAB 2: LOCAL ──────────────────────────────────────────────
 with tab2:
