@@ -3,210 +3,186 @@ import os
 import time
 import shutil
 import tempfile
-import zipfile
 from pathlib import Path
-import gdown
-
-from utils import (
-    extract_drive_id_and_type, get_drive_name, download_direct_file,
-    resize_image, check_pause_cancel_state, render_control_buttons,
-)
-
-IMAGE_EXTS      = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
-MAX_IMG_FOLDER  = 7   # giới hạn ảnh/thư mục để tránh timeout
+from utils import (extract_drive_id_and_type, get_drive_name, download_direct_file,
+                   resize_image, create_drive_folder, upload_to_drive,
+                   check_pause_cancel_state, render_control_buttons,
+                   api_download_folder_images, api_get_file_name)
 
 
-# ──────────────────────────────────────────────────────────────
-def _try_download_folder(file_id: str, dest: Path) -> bool:
-    """Tải thư mục Drive — 3 lần thử, trả True nếu có ít nhất 1 file."""
-    folder_url = f"https://drive.google.com/drive/folders/{file_id}"
-    for kwargs in [
-        dict(use_cookies=False, remaining_ok=True),
-        dict(use_cookies=True,  remaining_ok=True),
-        dict(use_cookies=False, remaining_ok=False),
-    ]:
-        try:
-            gdown.download_folder(url=folder_url, output=str(dest), quiet=True, **kwargs)
-            if any(dest.rglob("*")):
-                return True
-        except Exception:
-            pass
-        time.sleep(1.5)
-    return False
+def run_mode_drive(w, h, drive_service):
+    st.markdown("### 📥 1. NGUỒN ẢNH (Dán link cần tải)")
+    links_text = st.text_area("Link File/Thư mục cần Resize (Mỗi link 1 dòng):", height=120)
 
+    st.markdown("### 📤 2. ĐÍCH UPLOAD (Tự động up sau khi xử lý)")
+    upload_link = st.text_input("Link Thư mục Drive ĐÍCH:", placeholder="Bỏ trống nếu chỉ lấy file ZIP")
 
-def _make_zip(final_dir: Path, zip_path: Path):
-    """
-    Tạo ZIP giữ đúng cấu trúc thư mục.
-    Bỏ qua thư mục/file rỗng.
-    """
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for file in final_dir.rglob("*"):
-            if file.is_file() and file.stat().st_size > 0:
-                arcname = file.relative_to(final_dir)
-                zf.write(file, arcname)
+    if upload_link and not drive_service:
+        st.warning("⚠️ Hệ thống chưa kết nối API Upload Drive.")
 
+    if not drive_service:
+        st.warning("⚠️ Chưa có Service Account Drive API — tải file sẽ dùng gdown (dễ bị Google chặn trên cloud).")
 
-# ──────────────────────────────────────────────────────────────
-def run_mode_drive(w, h):
     if "drive_zip_data" not in st.session_state:
         st.session_state.drive_zip_data = None
 
-    # ── INPUT ────────────────────────────────────────────────
-    st.markdown('<div class="sec-title">📥 NGUỒN ẢNH — LINK GOOGLE DRIVE</div>', unsafe_allow_html=True)
-    links_text = st.text_area(
-        "Dán link (mỗi link 1 dòng):",
-        height=130,
-        placeholder=(
-            "https://drive.google.com/drive/folders/ABC123...\n"
-            "https://drive.google.com/file/d/XYZ456...\n"
-            "https://drive.google.com/open?id=..."
-        ),
-        label_visibility="collapsed",
-    )
+    if st.button("🚀 BẮT ĐẦU TẢI & RESIZE", type="primary", use_container_width=True):
+        st.session_state.download_status = 'running'
+        st.session_state.drive_zip_data = None
 
-    # ── NÚT BẮT ĐẦU ─────────────────────────────────────────
-    if st.button("🚀  BẮT ĐẦU TẢI & RESIZE", type="primary", use_container_width=True, key="btn_drive"):
         links = [l.strip() for l in links_text.splitlines() if l.strip()]
+        target_folder_id, _ = extract_drive_id_and_type(upload_link) if upload_link else (None, None)
+
         if not links:
-            st.error("⚠️ Vui lòng dán ít nhất 1 link!")
-            return
+            st.error("⚠️ Vui lòng dán link!")
+            st.session_state.download_status = 'idle'
+        else:
+            render_control_buttons()
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                raw_dir = temp_path / "RAW"
+                final_dir = temp_path / "FINAL"
+                raw_dir.mkdir(exist_ok=True)
+                final_dir.mkdir(exist_ok=True)
 
-        st.session_state.download_status = "running"
-        st.session_state.drive_zip_data  = None
+                status_text = st.empty()
+                progress_bar = st.progress(0)
+                log_container = st.container()
 
-        render_control_buttons()
-        status_ph  = st.empty()
-        prog_ph    = st.progress(0)
-        log_ph     = st.empty()
-        logs: list[str] = []
+                successful_links = 0
+                for i, url in enumerate(links):
+                    if not check_pause_cancel_state():
+                        break
 
-        def log(msg: str):
-            logs.append(msg)
-            log_ph.markdown(
-                "<div class='log-box'>" + "<br>".join(logs[-25:]) + "</div>",
-                unsafe_allow_html=True,
-            )
+                    file_id, kind = extract_drive_id_and_type(url)
+                    if not file_id:
+                        with log_container:
+                            st.warning(f"⚠️ Link không hợp lệ: {url}")
+                        continue
 
-        with tempfile.TemporaryDirectory() as td:
-            temp   = Path(td)
-            raw    = temp / "RAW"
-            final  = temp / "FINAL"
-            raw.mkdir();  final.mkdir()
+                    # Lấy tên qua API (ưu tiên) hoặc scrape
+                    drive_name = get_drive_name(file_id, kind, service=drive_service)
+                    current_raw = raw_dir / drive_name
+                    current_final = final_dir / drive_name
+                    current_raw.mkdir(parents=True, exist_ok=True)
 
-            ok_count = 0
+                    status_text.info(f"📥 Đang tải: **{drive_name}**...")
 
-            for i, url in enumerate(links):
-                if not check_pause_cancel_state():
-                    break
-
-                file_id, kind = extract_drive_id_and_type(url)
-                if not file_id:
-                    log(f"⚠️  Link không hợp lệ — bỏ qua: {url[:70]}")
-                    prog_ph.progress((i + 1) / len(links))
-                    continue
-
-                drive_name = get_drive_name(file_id, kind)
-                status_ph.info(f"⏳  [{i+1}/{len(links)}]  Đang xử lý: **{drive_name}**")
-                log(f"▶  {drive_name}")
-
-                curr_raw   = raw   / drive_name
-                curr_final = final / drive_name
-                curr_raw.mkdir(parents=True, exist_ok=True)
-
-                try:
-                    # ── FOLDER ──────────────────────────────
-                    if kind == "folder":
-                        ok = _try_download_folder(file_id, curr_raw)
-                        if not ok:
-                            log(f"  ❌ Không tải được '{drive_name}' — bỏ qua")
-                            shutil.rmtree(curr_raw, ignore_errors=True)
-                            prog_ph.progress((i + 1) / len(links))
-                            continue
-
-                        imgs = sorted(
-                            [f for f in curr_raw.rglob("*") if f.suffix.lower() in IMAGE_EXTS],
-                            key=lambda x: x.name,
-                        )
-                        if len(imgs) > MAX_IMG_FOLDER:
-                            log(f"  ⚠️  {len(imgs)} ảnh — giới hạn {MAX_IMG_FOLDER}")
-                            imgs = imgs[:MAX_IMG_FOLDER]
-
-                        if not imgs:
-                            log(f"  ❌ Không có ảnh hợp lệ — bỏ qua")
-                            prog_ph.progress((i + 1) / len(links))
-                            continue
-
-                        curr_final.mkdir(parents=True, exist_ok=True)
-                        done = 0
-                        for img in imgs:
-                            if not check_pause_cancel_state():
-                                break
-                            try:
-                                out = curr_final / f"{img.stem}.jpg"
-                                resize_image(img, out, w, h)
-                                done += 1
-                                log(f"  ✅  {img.name}")
-                            except Exception as e:
-                                log(f"  ⚠️  {img.name} — lỗi: {e}")
-
-                        if done > 0:
-                            ok_count += 1
-
-                    # ── FILE ĐƠN ────────────────────────────
-                    else:
-                        fp = download_direct_file(file_id, curr_raw, drive_name)
-                        if fp and fp.exists() and fp.stat().st_size > 2048:
-                            curr_final.mkdir(parents=True, exist_ok=True)
-                            out = curr_final / f"{fp.stem}.jpg"
-                            resize_image(fp, out, w, h)
-                            if out.exists() and out.stat().st_size > 0:
-                                ok_count += 1
-                                log(f"  ✅  {drive_name}")
+                    try:
+                        if kind == "folder":
+                            # === TẢI FOLDER ===
+                            if drive_service:
+                                # Dùng API tải trực tiếp
+                                count = api_download_folder_images(
+                                    drive_service, file_id, current_raw, max_files=None
+                                )
+                                if count == 0:
+                                    with log_container:
+                                        st.warning(f"⚠️ Folder '{drive_name}' — không tìm thấy ảnh hoặc không có quyền.")
+                                    shutil.rmtree(current_raw, ignore_errors=True)
+                                    continue
+                                with log_container:
+                                    st.success(f"✅ Tải được {count} ảnh từ '{drive_name}' qua API")
                             else:
-                                log(f"  ❌  Resize thất bại — bỏ qua")
+                                # Fallback: dùng gdown (dễ bị chặn trên cloud)
+                                try:
+                                    import gdown
+                                    folder_url = f"https://drive.google.com/drive/folders/{file_id}"
+                                    success = False
+                                    for use_cookie in [False, True, False]:
+                                        try:
+                                            gdown.download_folder(
+                                                url=folder_url,
+                                                output=str(current_raw),
+                                                quiet=True,
+                                                use_cookies=use_cookie
+                                            )
+                                            if any(current_raw.iterdir()):
+                                                success = True
+                                                break
+                                        except Exception:
+                                            time.sleep(2)
+                                    if not success:
+                                        with log_container:
+                                            st.warning(f"⚠️ Bỏ qua '{drive_name}' — Google chặn gdown.")
+                                        shutil.rmtree(current_raw, ignore_errors=True)
+                                        continue
+                                except ImportError:
+                                    with log_container:
+                                        st.error("❌ Không có gdown và không có Drive API!")
+                                    continue
+
+                            # Resize tất cả ảnh đã tải
+                            current_final.mkdir(parents=True, exist_ok=True)
+                            all_images = [
+                                f for f in current_raw.rglob("*.*")
+                                if f.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp"]
+                                and not f.name.startswith("._")
+                            ]
+                            for img in all_images:
+                                out_file = current_final / f"{img.stem}.jpg"
+                                resize_image(img, out_file, w, h)
+
                         else:
-                            log(f"  ❌  Không tải được file — bỏ qua")
+                            # === TẢI FILE ĐƠN ===
+                            file_path = download_direct_file(
+                                file_id, current_raw, drive_name, service=drive_service
+                            )
+                            if file_path and file_path.exists() and file_path.stat().st_size > 0:
+                                current_final.mkdir(parents=True, exist_ok=True)
+                                out_file = current_final / f"{file_path.stem}.jpg"
+                                resize_image(file_path, out_file, w, h)
+                                with log_container:
+                                    st.success(f"✅ '{drive_name}'")
+                            else:
+                                with log_container:
+                                    st.warning(f"⚠️ Không tải được '{drive_name}' — file rỗng hoặc lỗi quyền.")
+                                continue
 
-                except Exception as e:
-                    log(f"  ❌  Lỗi '{drive_name}': {e} — bỏ qua")
-                    shutil.rmtree(curr_raw, ignore_errors=True)
+                        successful_links += 1
 
-                prog_ph.progress((i + 1) / len(links))
+                        # Upload lên Drive đích (nếu có)
+                        if target_folder_id and drive_service and check_pause_cancel_state():
+                            try:
+                                new_folder_id = create_drive_folder(drive_service, drive_name, target_folder_id)
+                                for img in current_final.rglob("*.jpg"):
+                                    upload_to_drive(drive_service, img, new_folder_id)
+                            except Exception as e:
+                                with log_container:
+                                    st.warning(f"⚠️ Upload '{drive_name}' lỗi: {e}")
 
-            # ── ĐÓNG GÓI ZIP ────────────────────────────────
-            # Kiểm tra có file nào trong final không
-            all_output = [f for f in final.rglob("*") if f.is_file() and f.stat().st_size > 0]
+                    except Exception as e:
+                        with log_container:
+                            st.warning(f"⚠️ Lỗi xử lý '{drive_name}': {e}")
+                        shutil.rmtree(current_raw, ignore_errors=True)
+                        continue
 
-            if all_output:
-                if st.session_state.download_status == "cancelled":
-                    status_ph.warning(f"🚫  Đã hủy — đã xử lý {ok_count} thư mục/file, vẫn có thể tải ZIP.")
+                    progress_bar.progress((i + 1) / len(links))
+
+                # === KẾT THÚC ===
+                if successful_links > 0 or st.session_state.download_status == 'cancelled':
+                    if st.session_state.download_status == 'cancelled':
+                        status_text.warning("🚫 Đã hủy! File thành công trước đó vẫn có thể tải.")
+                    else:
+                        status_text.success(f"🎉 HOÀN TẤT! Đã xử lý {successful_links}/{len(links)} link.")
+
+                    shutil.make_archive(str(temp_path / "Drive_Images_Done"), 'zip', final_dir)
+                    zip_path = temp_path / "Drive_Images_Done.zip"
+                    if zip_path.exists():
+                        with open(zip_path, "rb") as f:
+                            st.session_state.drive_zip_data = f.read()
                 else:
-                    status_ph.success(f"🎉  HOÀN TẤT — {ok_count}/{len(links)} xử lý thành công!")
+                    status_text.error("❌ Không có ảnh nào xử lý được — kiểm tra quyền chia sẻ Drive.")
 
-                zip_path = temp / "Drive_Images_Done.zip"
-                _make_zip(final, zip_path)
+            st.session_state.download_status = 'idle'
 
-                if zip_path.exists() and zip_path.stat().st_size > 100:
-                    with open(zip_path, "rb") as f:
-                        st.session_state.drive_zip_data = f.read()
-                    log(f"📦  ZIP: {zip_path.stat().st_size // 1024} KB — {len(all_output)} file")
-                else:
-                    log("⚠️  ZIP rỗng bất thường")
-            else:
-                status_ph.error("❌  Không có ảnh nào xử lý được — kiểm tra quyền chia sẻ Drive.")
-
-            st.session_state.download_status = "idle"
-
-    # ── NÚT TẢI ZIP ─────────────────────────────────────────
-    if st.session_state.get("drive_zip_data"):
-        st.success("✅  Sẵn sàng tải xuống!")
+    # Nút tải ZIP (hiển thị ngoài vòng lặp)
+    if st.session_state.get('drive_zip_data'):
         st.download_button(
-            label="📥  TẢI TOÀN BỘ ẢNH (FILE ZIP)",
-            data=st.session_state.drive_zip_data,
-            file_name="Drive_Images_Done.zip",
-            mime="application/zip",
+            "📥 TẢI DỰ PHÒNG TOÀN BỘ ẢNH (FILE ZIP)",
+            st.session_state.drive_zip_data,
+            "Drive_Images_Done.zip",
+            "application/zip",
             type="primary",
-            use_container_width=True,
-            key="dl_drive",
+            use_container_width=True
         )
