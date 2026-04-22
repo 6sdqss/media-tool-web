@@ -1,259 +1,279 @@
 import os
 import re
+import io
 import time
-import requests
 import streamlit as st
 from pathlib import Path
 from PIL import Image
-import gdown
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
-# ══════════════════════════════════════════════════════════════
-# GOOGLE DRIVE SERVICE
-# ══════════════════════════════════════════════════════════════
+
 def get_gdrive_service():
     try:
         if "gcp_service_account" in st.secrets:
+            creds_info = st.secrets["gcp_service_account"]
             creds = service_account.Credentials.from_service_account_info(
-                st.secrets["gcp_service_account"],
-                scopes=["https://www.googleapis.com/auth/drive"],
+                creds_info, scopes=['https://www.googleapis.com/auth/drive']
             )
-            return build("drive", "v3", credentials=creds)
-    except Exception:
+            return build('drive', 'v3', credentials=creds)
+    except:
         pass
     try:
-        if os.path.exists("credentials.json"):
+        if os.path.exists('credentials.json'):
             creds = service_account.Credentials.from_service_account_file(
-                "credentials.json",
-                scopes=["https://www.googleapis.com/auth/drive"],
+                'credentials.json', scopes=['https://www.googleapis.com/auth/drive']
             )
-            return build("drive", "v3", credentials=creds)
-    except Exception:
+            return build('drive', 'v3', credentials=creds)
+    except:
         pass
     return None
 
 
-def create_drive_folder(service, folder_name: str, parent_id: str) -> str:
-    meta = {
-        "name": folder_name,
-        "mimeType": "application/vnd.google-apps.folder",
-        "parents": [parent_id],
+def create_drive_folder(service, folder_name, parent_id):
+    file_metadata = {
+        'name': folder_name,
+        'mimeType': 'application/vnd.google-apps.folder',
+        'parents': [parent_id]
     }
-    f = service.files().create(body=meta, fields="id").execute()
-    return f.get("id")
+    folder = service.files().create(body=file_metadata, fields='id').execute()
+    return folder.get('id')
 
 
-def upload_to_drive(service, file_path, target_folder_id: str) -> str:
-    meta = {"name": os.path.basename(file_path), "parents": [target_folder_id]}
-    media = MediaFileUpload(file_path, mimetype="image/jpeg", resumable=True)
-    f = service.files().create(body=meta, media_body=media, fields="id").execute()
-    return f.get("id")
+def upload_to_drive(service, file_path, target_folder_id):
+    file_metadata = {
+        'name': os.path.basename(file_path),
+        'parents': [target_folder_id]
+    }
+    media = MediaFileUpload(file_path, mimetype='image/jpeg', resumable=True)
+    file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+    return file.get('id')
 
 
-# ══════════════════════════════════════════════════════════════
-# EXTRACT DRIVE ID / TYPE
-# ══════════════════════════════════════════════════════════════
 def extract_drive_id_and_type(url: str):
-    if not url or not url.strip():
+    if not url:
         return None, None
-    fm = re.search(r"drive/folders/([a-zA-Z0-9_-]+)", url)
-    fi = re.search(r"file/d/([a-zA-Z0-9_-]+)", url)
-    im = re.search(r"[?&]id=([a-zA-Z0-9_-]+)", url)
-    if fm:  return fm.group(1), "folder"
-    if fi:  return fi.group(1), "file"
-    if im:  return im.group(1), "file"
+    folder_match = re.search(r"drive/folders/([a-zA-Z0-9_-]+)", url)
+    file_match = re.search(r"file/d/([a-zA-Z0-9_-]+)", url)
+    id_match = re.search(r"id=([a-zA-Z0-9_-]+)", url)
+    if folder_match:
+        return folder_match.group(1), "folder"
+    elif file_match:
+        return file_match.group(1), "file"
+    elif id_match:
+        return id_match.group(1), "file"
     return None, None
 
 
-# ══════════════════════════════════════════════════════════════
-# LẤY TÊN FILE/FOLDER TỪ DRIVE
-# ══════════════════════════════════════════════════════════════
-def get_drive_name(file_id: str, kind: str) -> str:
-    """Lấy tên từ Drive API public, fallback về scrape HTML title."""
-    # Phương thức 1: Drive API (không cần key với file public)
-    try:
-        r = requests.get(
-            f"https://www.googleapis.com/drive/v3/files/{file_id}?fields=name&supportsAllDrives=true",
-            timeout=8,
-        )
-        if r.status_code == 200:
-            name = r.json().get("name", "").strip()
-            if name:
-                return re.sub(r'[\\/\*?:"<>|]', "", name).strip()
-    except Exception:
-        pass
+# ============================================================
+# HÀM TẢI FILE BẰNG GOOGLE DRIVE API (thay thế gdown)
+# ============================================================
 
-    # Phương thức 2: scrape <title>
+def api_get_file_name(service, file_id):
+    """Lấy tên file/folder qua API."""
     try:
-        url = (
-            f"https://drive.google.com/file/d/{file_id}/view"
-            if kind == "file"
-            else f"https://drive.google.com/drive/folders/{file_id}"
-        )
-        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-        if r.status_code == 200:
-            m = re.search(r"<title>(.*?) - Google Drive</title>", r.text)
-            if m:
-                name = re.sub(r'[\\/\*?:"<>|]', "", m.group(1)).strip()
-                if name:
-                    return name
-    except Exception:
-        pass
+        meta = service.files().get(fileId=file_id, fields='name', supportsAllDrives=True).execute()
+        return meta.get('name', file_id)
+    except Exception as e:
+        print(f"[API] Không lấy được tên cho {file_id}: {e}")
+        return file_id
 
+
+def api_download_file(service, file_id, save_path: Path):
+    """Tải 1 file từ Drive bằng API. Trả về True nếu thành công."""
+    try:
+        request = service.files().get_media(fileId=file_id)
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(save_path, 'wb') as f:
+            f.write(fh.getvalue())
+        return True
+    except Exception as e:
+        print(f"[API] Lỗi tải file {file_id}: {e}")
+        return False
+
+
+def api_list_folder_images(service, folder_id):
+    """Liệt kê tất cả file ảnh trong 1 folder Drive (không đệ quy sâu)."""
+    image_mimes = [
+        "image/jpeg", "image/png", "image/webp", "image/gif",
+        "image/bmp", "image/tiff"
+    ]
+    mime_query = " or ".join([f"mimeType='{m}'" for m in image_mimes])
+    query = f"'{folder_id}' in parents and ({mime_query}) and trashed=false"
+
+    results = []
+    page_token = None
+    while True:
+        try:
+            resp = service.files().list(
+                q=query,
+                fields="nextPageToken, files(id, name, mimeType)",
+                pageSize=100,
+                pageToken=page_token,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True
+            ).execute()
+            results.extend(resp.get('files', []))
+            page_token = resp.get('nextPageToken')
+            if not page_token:
+                break
+        except Exception as e:
+            print(f"[API] Lỗi liệt kê folder {folder_id}: {e}")
+            break
+
+    # Cũng kiểm tra subfolder (đệ quy 1 cấp)
+    subfolder_query = f"'{folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+    try:
+        sub_resp = service.files().list(
+            q=subfolder_query,
+            fields="files(id, name)",
+            pageSize=50,
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True
+        ).execute()
+        for subfolder in sub_resp.get('files', []):
+            sub_images = api_list_folder_images(service, subfolder['id'])
+            results.extend(sub_images)
+    except Exception as e:
+        print(f"[API] Lỗi liệt kê subfolder: {e}")
+
+    return results
+
+
+def api_download_folder_images(service, folder_id, save_dir: Path, max_files=None):
+    """Tải tất cả ảnh trong folder về save_dir. Trả về số file tải được."""
+    images = api_list_folder_images(service, folder_id)
+    if not images:
+        return 0
+
+    if max_files and len(images) > max_files:
+        images = images[:max_files]
+
+    count = 0
+    for img_meta in images:
+        file_name = img_meta['name']
+        # Đảm bảo tên file hợp lệ
+        file_name = re.sub(r'[\\/*?:"<>|]', "", file_name).strip()
+        if not file_name:
+            file_name = f"{img_meta['id']}.jpg"
+        save_path = save_dir / file_name
+        if api_download_file(service, img_meta['id'], save_path):
+            count += 1
+    return count
+
+
+# ============================================================
+# HÀM GỌI TÊN (fallback nếu không có API)
+# ============================================================
+
+def get_drive_name(file_id: str, kind: str, service=None):
+    """Lấy tên file/folder. Ưu tiên dùng API, fallback dùng requests."""
+    if service:
+        return api_get_file_name(service, file_id)
+    # Fallback: scrape tên từ HTML (không ổn định trên cloud)
+    import requests
+    try:
+        url = (f"https://drive.google.com/file/d/{file_id}/view"
+               if kind == "file"
+               else f"https://drive.google.com/drive/folders/{file_id}")
+        resp = requests.get(url, timeout=10)
+        if resp.status_code == 200:
+            match = re.search(r"<title>(.*?) - Google Drive</title>", resp.text)
+            if match:
+                name = re.sub(r'[\\/*?:"<>|]', "", match.group(1)).strip()
+                return name.replace(" - Google Drive", "")
+    except:
+        pass
     return file_id
 
 
-# ══════════════════════════════════════════════════════════════
-# TẢI FILE ĐƠN TỪ DRIVE (multi-method)
-# ══════════════════════════════════════════════════════════════
-def download_direct_file(file_id: str, save_folder: Path, drive_name: str) -> Path:
-    """
-    Tải 1 file ảnh từ Drive.
-    Trả về Path file đã tải (có thể chưa tồn tại nếu thất bại).
-    """
-    save_folder.mkdir(parents=True, exist_ok=True)
+def download_direct_file(file_id: str, save_folder: Path, drive_name: str, service=None):
+    """Tải 1 file. Ưu tiên API, fallback gdown."""
     save_path = save_folder / f"{drive_name}.jpg"
-
-    # Phương thức 1: gdown fuzzy
-    try:
-        url = f"https://drive.google.com/uc?export=download&id={file_id}"
-        out = gdown.download(url, str(save_path), quiet=True, fuzzy=True)
-        if out and Path(out).exists() and Path(out).stat().st_size > 2048:
+    if service:
+        success = api_download_file(service, file_id, save_path)
+        if success and save_path.exists() and save_path.stat().st_size > 0:
             return save_path
-    except Exception:
-        pass
-
-    # Phương thức 2: requests stream + confirm token
+        # Nếu API thất bại, thử gdown
     try:
-        sess = requests.Session()
-        hdrs = {"User-Agent": "Mozilla/5.0"}
-        url  = f"https://drive.google.com/uc?export=download&id={file_id}"
-        resp = sess.get(url, headers=hdrs, stream=True, timeout=30)
-
-        # Xử lý trang confirm "virus scan"
-        if "Content-Disposition" not in resp.headers:
-            token = None
-            for k, v in resp.cookies.items():
-                if k.startswith("download_warning"):
-                    token = v
-                    break
-            if not token:
-                m = re.search(r"confirm=([0-9A-Za-z_\-]+)", resp.text)
-                token = m.group(1) if m else "t"
-            url  = f"https://drive.google.com/uc?export=download&confirm={token}&id={file_id}"
-            resp = sess.get(url, headers=hdrs, stream=True, timeout=30)
-
-        if resp.status_code == 200:
-            with open(save_path, "wb") as f:
-                for chunk in resp.iter_content(32768):
-                    if chunk:
-                        f.write(chunk)
-            if save_path.exists() and save_path.stat().st_size > 2048:
-                return save_path
+        import gdown
+        url = f'https://drive.google.com/uc?id={file_id}'
+        gdown.download(url, str(save_path), quiet=True, fuzzy=True)
     except Exception as e:
-        print(f"[download_direct_file] {e}")
-
+        print(f"Lỗi tải file (gdown fallback): {e}")
     return save_path
 
 
-# ══════════════════════════════════════════════════════════════
-# RESIZE ẢNH — LETTERBOX (giữ tỉ lệ, fill trắng, không méo)
-# ══════════════════════════════════════════════════════════════
+# ============================================================
+# CÁC HÀM TIỆN ÍCH KHÁC (giữ nguyên)
+# ============================================================
+
 def resize_image(image_path: Path, output_path: Path, width=None, height=None):
-    """
-    Resize ảnh về width×height.
-    - Giữ nguyên tỉ lệ gốc (không méo)
-    - Phần thừa fill màu trắng (letterbox)
-    - Xuất JPEG chất lượng 95
-    """
-    # Không resize → copy nguyên
     if not width or not height:
         import shutil
-        try:
-            shutil.copy2(image_path, output_path)
-        except Exception:
-            pass
+        shutil.copy2(image_path, output_path)
         return
-
     try:
         with Image.open(image_path) as img:
-            # Chuẩn hóa về RGB (xử lý RGBA, P, LA...)
             if img.mode in ("RGBA", "LA", "P"):
+                img = img.convert("RGBA")
                 bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
-                if img.mode == "P":
-                    img = img.convert("RGBA")
-                bg.paste(img, (0, 0), img if img.mode == "RGBA" else img.convert("RGBA"))
+                bg.paste(img, (0, 0), img)
                 img = bg.convert("RGB")
-            elif img.mode != "RGB":
+            else:
                 img = img.convert("RGB")
 
-            orig_w, orig_h = img.size
-            if orig_w == 0 or orig_h == 0:
-                return
+            img_ratio = img.width / img.height
+            target_ratio = width / height
+            if img_ratio > target_ratio:
+                new_w, new_h = width, int(width / img_ratio)
+            else:
+                new_w, new_h = int(height * img_ratio), height
 
-            # Bộ lọc resize chất lượng cao
             try:
-                flt = Image.Resampling.LANCZOS
+                resample_filter = Image.Resampling.LANCZOS
             except AttributeError:
-                flt = Image.ANTIALIAS  # Pillow < 9
+                resample_filter = Image.ANTIALIAS
 
-            # Scale FIT — không crop, không stretch
-            ratio_w = width  / orig_w
-            ratio_h = height / orig_h
-            scale   = min(ratio_w, ratio_h)
-            new_w   = max(1, int(orig_w * scale))
-            new_h   = max(1, int(orig_h * scale))
-
-            resized = img.resize((new_w, new_h), flt)
-
-            # Canvas trắng, dán ảnh căn giữa
-            canvas = Image.new("RGB", (width, height), (255, 255, 255))
-            paste_x = (width  - new_w) // 2
-            paste_y = (height - new_h) // 2
-            canvas.paste(resized, (paste_x, paste_y))
-
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            canvas.save(output_path, "JPEG", quality=95, optimize=True)
-
+            resized = img.resize((new_w, new_h), resample_filter)
+            new_img = Image.new("RGB", (width, height), (255, 255, 255))
+            new_img.paste(resized, ((width - new_w) // 2, (height - new_h) // 2))
+            new_img.save(output_path, "JPEG", quality=95)
     except Exception as e:
-        print(f"[resize_image] Lỗi '{image_path.name}': {e}")
+        print(f"Resize error: {e}")
 
 
-# ══════════════════════════════════════════════════════════════
-# TIỆN ÍCH
-# ══════════════════════════════════════════════════════════════
-def ignore_system_files(path: Path) -> bool:
-    n = path.name
-    return (
-        n.startswith("._")
-        or n == ".DS_Store"
-        or "__MACOSX" in str(path)
-        or n.lower() == "thumbs.db"
-    )
+def ignore_system_files(path: Path):
+    return path.name.startswith("._") or path.name == ".DS_Store" or path.name.startswith("__MACOSX")
 
 
-def check_pause_cancel_state() -> bool:
-    """True = tiếp tục, False = đã hủy."""
-    while st.session_state.get("download_status") == "paused":
-        time.sleep(0.5)
-    return st.session_state.get("download_status") != "cancelled"
+def check_pause_cancel_state():
+    while st.session_state.download_status == 'paused':
+        time.sleep(1)
+    if st.session_state.download_status == 'cancelled':
+        return False
+    return True
 
 
 def render_control_buttons():
     st.markdown('<div class="control-box">', unsafe_allow_html=True)
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        if st.button("⏸️ Tạm dừng", use_container_width=True, key="_btn_pause"):
-            st.session_state.download_status = "paused"
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("⏸️ Tạm dừng", use_container_width=True):
+            st.session_state.download_status = 'paused'
             st.rerun()
-    with c2:
-        if st.button("▶️ Tiếp tục", use_container_width=True, key="_btn_resume"):
-            st.session_state.download_status = "running"
+    with col2:
+        if st.button("▶️ Tiếp tục", use_container_width=True):
+            st.session_state.download_status = 'running'
             st.rerun()
-    with c3:
-        if st.button("⏹️ Hủy bỏ", type="primary", use_container_width=True, key="_btn_cancel"):
-            st.session_state.download_status = "cancelled"
+    with col3:
+        if st.button("⏹️ Hủy bỏ", type="primary", use_container_width=True):
+            st.session_state.download_status = 'cancelled'
             st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
