@@ -72,7 +72,6 @@ def run_mode_drive(w, h, drive_service):
                         if kind == "folder":
                             # === TẢI FOLDER ===
                             if drive_service:
-                                # Dùng API tải trực tiếp
                                 count = api_download_folder_images(
                                     drive_service, file_id, current_raw, max_files=None
                                 )
@@ -84,7 +83,6 @@ def run_mode_drive(w, h, drive_service):
                                 with log_container:
                                     st.success(f"✅ Tải được {count} ảnh từ '{drive_name}' qua API")
                             else:
-                                # Fallback: dùng gdown (dễ bị chặn trên cloud)
                                 try:
                                     import gdown
                                     folder_url = f"https://drive.google.com/drive/folders/{file_id}"
@@ -112,7 +110,6 @@ def run_mode_drive(w, h, drive_service):
                                         st.error("❌ Không có gdown và không có Drive API!")
                                     continue
 
-                            # Resize tất cả ảnh đã tải
                             current_final.mkdir(parents=True, exist_ok=True)
                             all_images = [
                                 f for f in current_raw.rglob("*.*")
@@ -128,6 +125,18 @@ def run_mode_drive(w, h, drive_service):
                             file_path = download_direct_file(
                                 file_id, current_raw, drive_name, service=drive_service
                             )
+                            
+                            # === NÂNG CẤP: Xử lý link chỉ Xem/Nhận xét ===
+                            if not file_path or not file_path.exists() or file_path.stat().st_size == 0:
+                                try:
+                                    import gdown
+                                    fallback_path = current_raw / f"{drive_name}_gdown"
+                                    res = gdown.download(url=url, output=str(fallback_path), quiet=True, fuzzy=True)
+                                    if res and fallback_path.exists() and fallback_path.stat().st_size > 0:
+                                        file_path = fallback_path
+                                except Exception:
+                                    pass
+
                             if file_path and file_path.exists() and file_path.stat().st_size > 0:
                                 current_final.mkdir(parents=True, exist_ok=True)
                                 out_file = current_final / f"{file_path.stem}.jpg"
@@ -136,7 +145,7 @@ def run_mode_drive(w, h, drive_service):
                                     st.success(f"✅ '{drive_name}'")
                             else:
                                 with log_container:
-                                    st.warning(f"⚠️ Không tải được '{drive_name}' — file rỗng hoặc lỗi quyền.")
+                                    st.warning(f"⚠️ Không tải được '{drive_name}' — file rỗng hoặc bị chặn quyền tải xuống cứng.")
                                 continue
 
                         successful_links += 1
