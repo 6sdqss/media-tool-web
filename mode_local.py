@@ -28,17 +28,20 @@ def run_mode_local(w, h):
     # ── INFO ─────────────────────────────────────────────────
     st.markdown("""
     <div class="guide-box" style="padding:12px 16px;font-size:.86rem">
-        💡 <b>Cách dùng:</b> Nén thư mục ảnh thành <b>.zip</b> rồi upload lên đây.
-        Cấu trúc khuyên dùng: <code>tên_sản_phẩm/tên_màu/ảnh.jpg</code>
+        💡 <b>Cách dùng:</b> Nén thư mục ảnh thành <b>.zip</b> rồi upload lên đây.<br>
+        <i>Có thể upload nhiều file ZIP cùng lúc.</i>
     </div>""", unsafe_allow_html=True)
 
     # ── UPLOAD ───────────────────────────────────────────────
     st.markdown('<div class="sec-title">📦 UPLOAD FILE ZIP</div>', unsafe_allow_html=True)
+    
+    # === NÂNG CẤP: Cho phép upload nhiều file ZIP ===
     uploaded = st.file_uploader(
         "Chọn file ZIP:",
         type=["zip"],
-        help="Chỉ hỗ trợ .zip. Kích thước tối đa ~200MB.",
+        help="Hỗ trợ chọn nhiều file .zip. Kích thước tối đa ~200MB/file.",
         label_visibility="collapsed",
+        accept_multiple_files=True
     )
 
     # ── NÚT BẮT ĐẦU ─────────────────────────────────────────
@@ -69,28 +72,39 @@ def run_mode_local(w, h):
             final = temp / "FINAL"
             raw.mkdir();  final.mkdir()
 
-            # ── GIẢI NÉN ─────────────────────────────────────
-            status_ph.info("⏳ Đang giải nén file...")
-            try:
-                with zipfile.ZipFile(uploaded, "r") as zf:
-                    members = [
-                        m for m in zf.namelist()
-                        if not m.startswith("__MACOSX")
-                        and "/.DS_Store" not in m
-                        and not m.startswith(".")
-                        and not "/._" in m
-                    ]
-                    if not members:
-                        members = zf.namelist()
-                    zf.extractall(raw, members=members)
-            except zipfile.BadZipFile:
-                st.error("❌ File ZIP bị hỏng hoặc không đúng định dạng!")
-                st.session_state.download_status = "idle"
-                return
-            except Exception as e:
-                st.error(f"❌ Lỗi giải nén: {e}")
-                st.session_state.download_status = "idle"
-                return
+            # === NÂNG CẤP: Xử lý ghi luồng đĩa chống văng app & Giải nén nhiều file ===
+            status_ph.info(f"⏳ Đang giải nén {len(uploaded)} file ZIP...")
+            
+            for up_file in uploaded:
+                try:
+                    # Ghi trực tiếp xuống ổ đĩa thay vì đọc trên RAM
+                    zip_path = temp / up_file.name
+                    with open(zip_path, "wb") as f:
+                        f.write(up_file.getbuffer())
+
+                    # Tạo thư mục giải nén trùng với tên file ZIP
+                    folder_name = Path(up_file.name).stem
+                    extract_path = raw / folder_name
+                    extract_path.mkdir(parents=True, exist_ok=True)
+
+                    with zipfile.ZipFile(zip_path, "r") as zf:
+                        members = [
+                            m for m in zf.namelist()
+                            if not m.startswith("__MACOSX")
+                            and "/.DS_Store" not in m
+                            and not m.startswith(".")
+                            and not "/._" in m
+                        ]
+                        if not members:
+                            members = zf.namelist()
+                        zf.extractall(extract_path, members=members)
+                        
+                    # Giải nén xong thì xóa file ZIP tạm đi cho nhẹ
+                    zip_path.unlink()
+                except zipfile.BadZipFile:
+                    st.error(f"❌ File ZIP {up_file.name} bị hỏng hoặc không đúng định dạng!")
+                except Exception as e:
+                    st.error(f"❌ Lỗi giải nén {up_file.name}: {e}")
 
             # ── TÌM ẢNH ─────────────────────────────────────
             valid = [
