@@ -144,7 +144,7 @@ if not st.session_state.logged_in:
                     st.rerun()
                 else:
                     st.error("❌ Sai tài khoản hoặc mật khẩu!")
-        st.markdown("<p style='text-align:center;color:#94a3b8;font-size:.76rem;margin-top:14px'>© 2025 Media Tool Pro · v3.0</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center;color:#94a3b8;font-size:.76rem;margin-top:14px'>© 2025 Media Tool Pro · v3.1</p>", unsafe_allow_html=True)
     st.stop()
 
 # ══════════════════════════════════════════════════════════════
@@ -155,7 +155,7 @@ with st.sidebar:
     <div style='text-align:center;padding:18px 0 8px'>
         <div style='font-size:2.5rem'>🖼️</div>
         <div style='font-size:1.05rem;font-weight:800;color:#f1f5f9'>Media Tool Pro</div>
-        <div style='font-size:.73rem;color:#94a3b8'>v3.0 · ducpro</div>
+        <div style='font-size:.73rem;color:#94a3b8'>v3.1 · ducpro</div>
     </div>""", unsafe_allow_html=True)
     st.divider()
 
@@ -168,11 +168,11 @@ with st.sidebar:
     st.divider()
 
     st.markdown("**📐 Kích thước hỗ trợ:**")
-    st.caption("• 1020×680 — Ảnh ngang chuẩn\n• 1020×570 — Ảnh ngang rộng\n• 1200×1200 — Ảnh vuông\n• Gốc — Không resize")
+    st.caption("• 1020×680 — Ảnh ngang chuẩn\n• 1020×570 — Ảnh ngang rộng\n• 1200×1200 — Ảnh vuông\n• 1000×1000 — Photoshop Crop\n• Gốc — Không resize")
     st.divider()
 
     st.markdown("**⚡ Tính năng:**")
-    st.caption("✅ Giữ tỉ lệ ảnh gốc\n✅ Fill nền trắng\n✅ Bỏ qua lỗi tự động\n✅ Đặt tên đúng thư mục\n✅ ZIP có cấu trúc rõ ràng")
+    st.caption("✅ Giữ tỉ lệ ảnh gốc\n✅ Fill nền trắng\n✅ Điều chỉnh phóng to ảnh nhỏ\n✅ Crop 1:1 kiểu Photoshop\n✅ Bỏ qua lỗi tự động\n✅ Đặt tên đúng thư mục\n✅ ZIP có cấu trúc rõ ràng")
     st.divider()
 
     if st.button("🚪  Đăng Xuất", use_container_width=True):
@@ -201,10 +201,11 @@ st.markdown("""
 # SIZE OPTIONS (dùng chung)
 # ══════════════════════════════════════════════════════════════
 SIZE_OPTIONS = {
-    "🖼️  1020 × 680  —  Ngang chuẩn":    (1020, 680),
-    "🖼️  1020 × 570  —  Ngang rộng":     (1020, 570),
-    "🖼️  1200 × 1200  —  Vuông":          (1200, 1200),
-    "📦  Tải hình gốc  —  Không Resize":  (None, None),
+    "🖼️  1020 × 680  —  Ngang chuẩn":          (1020, 680,  "letterbox"),
+    "🖼️  1020 × 570  —  Ngang rộng":           (1020, 570,  "letterbox"),
+    "🖼️  1200 × 1200  —  Vuông":                (1200, 1200, "letterbox"),
+    "✂️  1000 × 1000  —  Photoshop Crop 1:1":   (1000, 1000, "crop_1000"),
+    "📦  Tải hình gốc  —  Không Resize":        (None, None, "letterbox"),
 }
 
 # ══════════════════════════════════════════════════════════════
@@ -220,35 +221,65 @@ tab1, tab2, tab3, tab4 = st.tabs([
 # ── TAB 1: DRIVE ──────────────────────────────────────────────
 with tab1:
     with st.container(border=True):
-        w1, h1 = SIZE_OPTIONS[st.selectbox(
+        size_key_1 = st.selectbox(
             "📐 Kích thước Resize:", list(SIZE_OPTIONS.keys()), key="sz_drive",
-            help="Ảnh giữ tỉ lệ gốc, phần thừa fill trắng — không bao giờ méo ảnh")]
+            help="Ảnh giữ tỉ lệ gốc, phần thừa fill trắng — không bao giờ méo ảnh")
+        w1, h1, mode1 = SIZE_OPTIONS[size_key_1]
+
+        # Hiện slider scale khi KHÔNG phải mode crop_1000 và KHÔNG phải tải gốc
+        if mode1 == "letterbox" and w1 is not None:
+            scale1 = st.slider(
+                "🔍 Tỉ lệ phóng to ảnh trên canvas (%):",
+                min_value=50, max_value=150, value=100, step=5,
+                key="scale_drive",
+                help="100% = vừa khung. >100% = ảnh to hơn (có thể bị crop). <100% = ảnh nhỏ hơn (nhiều viền trắng)")
+        else:
+            scale1 = 100
     st.write("")
-    # THÊM drive_service VÀO ĐÂY:
-    run_mode_drive(w1, h1, drive_service)
+    run_mode_drive(w1, h1, drive_service, scale_pct=scale1, mode=mode1)
 
 # ── TAB 2: LOCAL ──────────────────────────────────────────────
 with tab2:
     with st.container(border=True):
-        w2, h2 = SIZE_OPTIONS[st.selectbox(
-            "📐 Kích thước Resize:", list(SIZE_OPTIONS.keys()), key="sz_local")]
+        size_key_2 = st.selectbox(
+            "📐 Kích thước Resize:", list(SIZE_OPTIONS.keys()), key="sz_local")
+        w2, h2, mode2 = SIZE_OPTIONS[size_key_2]
+
+        if mode2 == "letterbox" and w2 is not None:
+            scale2 = st.slider(
+                "🔍 Tỉ lệ phóng to ảnh trên canvas (%):",
+                min_value=50, max_value=150, value=100, step=5,
+                key="scale_local",
+                help="100% = vừa khung. >100% = ảnh to hơn (có thể bị crop). <100% = ảnh nhỏ hơn (nhiều viền trắng)")
+        else:
+            scale2 = 100
     st.write("")
-    run_mode_local(w2, h2)
+    run_mode_local(w2, h2, scale_pct=scale2, mode=mode2)
 
 # ── TAB 3: WEB ────────────────────────────────────────────────
 with tab3:
     with st.container(border=True):
-        w3, h3 = SIZE_OPTIONS[st.selectbox(
-            "📐 Kích thước Resize:", list(SIZE_OPTIONS.keys()), key="sz_web")]
+        size_key_3 = st.selectbox(
+            "📐 Kích thước Resize:", list(SIZE_OPTIONS.keys()), key="sz_web")
+        w3, h3, mode3 = SIZE_OPTIONS[size_key_3]
+
+        if mode3 == "letterbox" and w3 is not None:
+            scale3 = st.slider(
+                "🔍 Tỉ lệ phóng to ảnh trên canvas (%):",
+                min_value=50, max_value=150, value=100, step=5,
+                key="scale_web",
+                help="100% = vừa khung. >100% = ảnh to hơn (có thể bị crop). <100% = ảnh nhỏ hơn (nhiều viền trắng)")
+        else:
+            scale3 = 100
     st.write("")
-    run_mode_web(w3, h3)
+    run_mode_web(w3, h3, scale_pct=scale3, mode=mode3)
 
 # ── TAB 4: HƯỚNG DẪN ──────────────────────────────────────────
 with tab4:
     st.markdown("""
     <div class="guide-box">
         <div style='font-size:1.05rem;font-weight:800;color:#0c4a6e;margin-bottom:10px'>
-            📋 TỔNG QUAN — Media Tool Pro v3.0
+            📋 TỔNG QUAN — Media Tool Pro v3.1
         </div>
         <b>Media Tool Pro</b> là công cụ xử lý ảnh sản phẩm chạy hoàn toàn trên trình duyệt.
         Tự động tải ảnh từ nhiều nguồn, resize về đúng kích thước chuẩn, giữ nguyên tỉ lệ,
@@ -270,7 +301,7 @@ with tab4:
 - Hỗ trợ link thư mục và link file đơn
 - Mỗi link 1 dòng — có thể dán nhiều link cùng lúc
 
-**📌 B3 — Chọn kích thước → Bắt đầu**
+**📌 B3 — Chọn kích thước + điều chỉnh tỉ lệ → Bắt đầu**
 
 **📌 B4 — Tải ZIP về máy**
 - ZIP giữ đúng tên thư mục Drive gốc
@@ -300,7 +331,7 @@ my_images.zip
 
 **📌 B2 — Upload ZIP** (tối đa ~200MB)
 
-**📌 B3 — Chọn kích thước → Bắt đầu**
+**📌 B3 — Chọn kích thước + điều chỉnh tỉ lệ → Bắt đầu**
 
 **📌 B4 — Tải ZIP kết quả**
 - Giữ nguyên cấu trúc thư mục
@@ -353,11 +384,12 @@ https://www.dienmayxanh.com/tivi/...
 1. Scale ảnh **vừa khung**, giữ nguyên tỉ lệ
 2. Phần trống → **fill màu trắng** (không crop, không méo)
 3. Xuất **.jpg** chất lượng 95%, nén tối ưu
+4. **Thanh trượt tỉ lệ**: điều chỉnh % phóng to/thu nhỏ so với kích thước vừa khung
 
-**Ví dụ thực tế:**
-- Ảnh 800×600 → target 1020×680: scale lên rồi fill trắng ✅
-- Ảnh 2000×2000 → target 1200×1200: thu nhỏ, fill trắng ✅
-- Ảnh 400×800 → target 1020×680: scale nhỏ lại, fill trắng 2 bên ✅
+**Thuật toán Photoshop Crop 1:1 (1000×1000):**
+
+1. Ảnh lớn → crop chính giữa 1:1 → resize down về 1000×1000
+2. Ảnh nhỏ → giữ nguyên, đặt vào nền trắng 1000×1000
 
 **Kích thước phù hợp:**
 | Size | Dùng cho |
@@ -365,6 +397,7 @@ https://www.dienmayxanh.com/tivi/...
 | 1020×680 | Banner ngang, điện thoại |
 | 1020×570 | Ảnh ngang rộng 16:9 |
 | 1200×1200 | Shopee, Lazada, TikTok Shop |
+| 1000×1000 | Photoshop Crop 1:1 |
 | Gốc | Giữ nguyên không xử lý |
             """)
 
@@ -382,6 +415,6 @@ https://www.dienmayxanh.com/tivi/...
     st.divider()
     st.markdown("""
     <div style='text-align:center;color:#94a3b8;font-size:.8rem;padding:8px 0'>
-        🖼️ <b>Media Tool Pro v3.0</b> · Python & Streamlit ·
+        🖼️ <b>Media Tool Pro v3.1</b> · Python & Streamlit ·
         Hỗ trợ: Google Drive · TheGiớiDiĐộng · ĐiệnMáyXanh · Local ZIP
     </div>""", unsafe_allow_html=True)
