@@ -7,10 +7,11 @@ from pathlib import Path
 from utils import (extract_drive_id_and_type, get_drive_name, download_direct_file,
                    resize_image, create_drive_folder, upload_to_drive,
                    check_pause_cancel_state, render_control_buttons,
-                   api_download_folder_images, api_get_file_name)
+                   api_download_folder_images, api_get_file_name,
+                   show_preview, batch_rename_files, add_to_history, get_size_label)
 
 
-def run_mode_drive(w, h, drive_service, scale_pct=100, mode="letterbox"):
+def run_mode_drive(w, h, drive_service, scale_pct=100, mode="letterbox", rename=False):
     st.markdown("### 📥 1. NGUỒN ẢNH (Dán link cần tải)")
     links_text = st.text_area("Link File/Thư mục cần Resize (Mỗi link 1 dòng):", height=120)
 
@@ -38,6 +39,7 @@ def run_mode_drive(w, h, drive_service, scale_pct=100, mode="letterbox"):
             st.session_state.download_status = 'idle'
         else:
             render_control_buttons()
+            _t_start = time.time()
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
                 raw_dir = temp_path / "RAW"
@@ -171,17 +173,35 @@ def run_mode_drive(w, h, drive_service, scale_pct=100, mode="letterbox"):
                     progress_bar.progress((i + 1) / len(links))
 
                 # === KẾT THÚC ===
+                _duration = time.time() - _t_start
+                all_final = [f for f in final_dir.rglob("*") if f.is_file() and f.stat().st_size > 0]
+
                 if successful_links > 0 or st.session_state.download_status == 'cancelled':
                     if st.session_state.download_status == 'cancelled':
                         status_text.warning("🚫 Đã hủy! File thành công trước đó vẫn có thể tải.")
                     else:
                         status_text.success(f"🎉 HOÀN TẤT! Đã xử lý {successful_links}/{len(links)} link.")
 
+                    # Đặt tên hàng loạt nếu bật
+                    if rename and all_final:
+                        n_renamed = batch_rename_files(final_dir)
+                        if n_renamed:
+                            with log_container:
+                                st.info(f"✏️ Đã đổi tên {n_renamed} ảnh")
+
+                    # Xem trước
+                    show_preview(final_dir)
+
                     shutil.make_archive(str(temp_path / "Drive_Images_Done"), 'zip', final_dir)
                     zip_path = temp_path / "Drive_Images_Done.zip"
                     if zip_path.exists():
                         with open(zip_path, "rb") as f:
                             st.session_state.drive_zip_data = f.read()
+
+                    # Lưu lịch sử
+                    detail = ", ".join([l.strip().split("/")[-1][:20] for l in links[:3]])
+                    add_to_history("Drive", detail, len(all_final),
+                                   get_size_label(w, h, mode), _duration)
                 else:
                     status_text.error("❌ Không có ảnh nào xử lý được — kiểm tra quyền chia sẻ Drive.")
 
