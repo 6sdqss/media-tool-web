@@ -10,7 +10,7 @@ from utils import (extract_drive_id_and_type, get_drive_name, download_direct_fi
                    api_download_folder_images, api_get_file_name)
 
 
-def run_mode_drive(w, h, drive_service):
+def run_mode_drive(w, h, drive_service, scale_pct=100, mode="letterbox"):
     st.markdown("### 📥 1. NGUỒN ẢNH (Dán link cần tải)")
     links_text = st.text_area("Link File/Thư mục cần Resize (Mỗi link 1 dòng):", height=120)
 
@@ -118,7 +118,8 @@ def run_mode_drive(w, h, drive_service):
                             ]
                             for img in all_images:
                                 out_file = current_final / f"{img.stem}.jpg"
-                                resize_image(img, out_file, w, h)
+                                resize_image(img, out_file, w, h,
+                                             scale_pct=scale_pct, mode=mode)
 
                         else:
                             # === TẢI FILE ĐƠN ===
@@ -140,7 +141,8 @@ def run_mode_drive(w, h, drive_service):
                             if file_path and file_path.exists() and file_path.stat().st_size > 0:
                                 current_final.mkdir(parents=True, exist_ok=True)
                                 out_file = current_final / f"{file_path.stem}.jpg"
-                                resize_image(file_path, out_file, w, h)
+                                resize_image(file_path, out_file, w, h,
+                                             scale_pct=scale_pct, mode=mode)
                                 with log_container:
                                     st.success(f"✅ '{drive_name}'")
                             else:
