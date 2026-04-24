@@ -13,6 +13,7 @@ from urllib.parse import urljoin, urlparse
 
 from utils import (
     resize_image, check_pause_cancel_state, render_control_buttons,
+    show_preview, batch_rename_files, add_to_history, get_size_label,
 )
 
 # ══════════════════════════════════════════════════════════════
@@ -146,7 +147,7 @@ def _make_zip(final_dir: Path, zip_path: Path):
 # ══════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════
-def run_mode_web(w, h, scale_pct=100, mode="letterbox"):
+def run_mode_web(w, h, scale_pct=100, mode="letterbox", rename=False):
     if "web_scanned" not in st.session_state:
         st.session_state.web_scanned = []
     if "web_zip_data" not in st.session_state:
@@ -234,6 +235,7 @@ def run_mode_web(w, h, scale_pct=100, mode="letterbox"):
             st.session_state.web_zip_data    = None
 
             render_control_buttons()
+            _t_start = time.time()
             status_ph = st.empty()
             prog_ph   = st.progress(0)
             log_ph    = st.empty()
@@ -329,6 +331,7 @@ def run_mode_web(w, h, scale_pct=100, mode="letterbox"):
                     prog_ph.progress((i + 1) / total)
 
                 # ── ĐÓNG GÓI ZIP ────────────────────────────
+                _duration = time.time() - _t_start
                 all_out = [f for f in final.rglob("*") if f.is_file() and f.stat().st_size > 0]
 
                 if all_out:
@@ -336,6 +339,15 @@ def run_mode_web(w, h, scale_pct=100, mode="letterbox"):
                         status_ph.warning(f"🚫 Đã hủy — {len(all_out)} ảnh đã xử lý, vẫn có thể tải.")
                     else:
                         status_ph.success(f"🎉 HOÀN TẤT — {len(all_out)} ảnh trong ZIP!")
+
+                    # Đặt tên hàng loạt nếu bật
+                    if rename:
+                        n_renamed = batch_rename_files(final)
+                        if n_renamed:
+                            log(f"✏️  Đã đổi tên {n_renamed} ảnh")
+
+                    # Xem trước
+                    show_preview(final)
 
                     zip_path = temp / "Web_Images_Done.zip"
                     _make_zip(final, zip_path)
@@ -346,6 +358,12 @@ def run_mode_web(w, h, scale_pct=100, mode="letterbox"):
                         log(f"📦  ZIP: {zip_path.stat().st_size // 1024} KB")
                     else:
                         log("⚠️  ZIP rỗng bất thường")
+
+                    # Lưu lịch sử
+                    product_names = list({t["product"] for t in selected_tasks})
+                    detail = ", ".join(product_names[:3])
+                    add_to_history("Web", detail, len(all_out),
+                                   get_size_label(w, h, mode), _duration)
                 else:
                     status_ph.error("❌ Không có ảnh nào tải được!")
 
