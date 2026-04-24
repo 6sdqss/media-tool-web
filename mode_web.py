@@ -146,7 +146,7 @@ def _make_zip(final_dir: Path, zip_path: Path):
 # ══════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════
-def run_mode_web(w, h):
+def run_mode_web(w, h, scale_pct=100, mode="letterbox"):
     if "web_scanned" not in st.session_state:
         st.session_state.web_scanned = []
     if "web_zip_data" not in st.session_state:
@@ -276,7 +276,8 @@ def run_mode_web(w, h):
                                 time.sleep(0.8)
 
                         if sp.exists() and sp.stat().st_size > 512:
-                            resize_image(sp, out, w, h)
+                            resize_image(sp, out, w, h,
+                                         scale_pct=scale_pct, mode=mode)
                             return out.exists() and out.stat().st_size > 0
                     except Exception:
                         pass
