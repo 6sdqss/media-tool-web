@@ -199,7 +199,7 @@ from mode_web   import run_mode_web
 st.markdown("""
 <div style='margin-bottom:16px'>
     <h1 style='color:#1e3a8a;margin:0;font-size:1.9rem;font-weight:900'>🖼️ Media Tool Pro</h1>
-    <p style='color:#64748b;margin:3px 0 0;font-size:.9rem'>Tải · Resize · Đóng gói ZIP — Tự động & Thông minh</p>
+    <p style='color:#64748b;margin:3px 0 0;font-size:.9rem'>Tải · Resize · Đóng gói ZIP</p>
 </div>
 """, unsafe_allow_html=True)
 
