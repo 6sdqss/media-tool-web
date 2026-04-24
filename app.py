@@ -172,7 +172,13 @@ with st.sidebar:
     st.divider()
 
     st.markdown("**⚡ Tính năng:**")
-    st.caption("✅ Giữ tỉ lệ ảnh gốc\n✅ Fill nền trắng\n✅ Điều chỉnh phóng to ảnh nhỏ\n✅ Crop 1:1 kiểu Photoshop\n✅ Bỏ qua lỗi tự động\n✅ Đặt tên đúng thư mục\n✅ ZIP có cấu trúc rõ ràng")
+    st.caption("✅ Giữ tỉ lệ ảnh gốc\n✅ Fill nền trắng\n✅ Điều chỉnh phóng to ảnh nhỏ\n✅ Crop 1:1 kiểu Photoshop\n✅ Xem trước ảnh sau resize\n✅ Đặt tên hàng loạt\n✅ Lịch sử xử lý\n✅ ZIP có cấu trúc rõ ràng")
+    st.divider()
+
+    # ── LỊCH SỬ XỬ LÝ ──
+    st.markdown("**📋 Lịch sử xử lý:**")
+    from utils import render_history_sidebar
+    render_history_sidebar()
     st.divider()
 
     if st.button("🚪  Đăng Xuất", use_container_width=True):
@@ -235,8 +241,10 @@ with tab1:
                 help="100% = vừa khung. >100% = ảnh to hơn (có thể bị crop). <100% = ảnh nhỏ hơn (nhiều viền trắng)")
         else:
             scale1 = 100
+
+        rename1 = st.toggle("✏️ Đặt tên hàng loạt (VD: TenSP_Mau_01.jpg)", value=False, key="rename_drive")
     st.write("")
-    run_mode_drive(w1, h1, drive_service, scale_pct=scale1, mode=mode1)
+    run_mode_drive(w1, h1, drive_service, scale_pct=scale1, mode=mode1, rename=rename1)
 
 # ── TAB 2: LOCAL ──────────────────────────────────────────────
 with tab2:
@@ -253,8 +261,10 @@ with tab2:
                 help="100% = vừa khung. >100% = ảnh to hơn (có thể bị crop). <100% = ảnh nhỏ hơn (nhiều viền trắng)")
         else:
             scale2 = 100
+
+        rename2 = st.toggle("✏️ Đặt tên hàng loạt (VD: TenSP_Mau_01.jpg)", value=False, key="rename_local")
     st.write("")
-    run_mode_local(w2, h2, scale_pct=scale2, mode=mode2)
+    run_mode_local(w2, h2, scale_pct=scale2, mode=mode2, rename=rename2)
 
 # ── TAB 3: WEB ────────────────────────────────────────────────
 with tab3:
@@ -271,8 +281,10 @@ with tab3:
                 help="100% = vừa khung. >100% = ảnh to hơn (có thể bị crop). <100% = ảnh nhỏ hơn (nhiều viền trắng)")
         else:
             scale3 = 100
+
+        rename3 = st.toggle("✏️ Đặt tên hàng loạt (VD: TenSP_Mau_01.jpg)", value=False, key="rename_web")
     st.write("")
-    run_mode_web(w3, h3, scale_pct=scale3, mode=mode3)
+    run_mode_web(w3, h3, scale_pct=scale3, mode=mode3, rename=rename3)
 
 # ── TAB 4: HƯỚNG DẪN ──────────────────────────────────────────
 with tab4:
