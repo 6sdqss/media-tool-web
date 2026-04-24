@@ -366,3 +366,164 @@ def render_control_buttons():
             st.session_state.download_status = 'cancelled'
             st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
+
+
+# ============================================================
+# PREVIEW THUMBNAIL SAU KHI RESIZE
+# ============================================================
+
+def show_preview(final_dir: Path, max_images=6):
+    """Hiện thumbnail ảnh đã resize để kiểm tra trước khi tải ZIP."""
+    all_imgs = sorted([
+        f for f in final_dir.rglob("*")
+        if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
+        and f.stat().st_size > 0
+    ])
+    if not all_imgs:
+        return
+
+    preview_imgs = all_imgs[:max_images]
+    st.markdown(
+        f"<div class='sec-title'>👁️ XEM TRƯỚC ({len(preview_imgs)}/{len(all_imgs)} ảnh)</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Hiện grid 3 cột
+    ncols = min(len(preview_imgs), 3)
+    cols = st.columns(ncols)
+    for idx, img_path in enumerate(preview_imgs):
+        with cols[idx % ncols]:
+            try:
+                img = Image.open(img_path)
+                # Tạo thumbnail nhỏ để hiển thị nhanh
+                thumb = img.copy()
+                thumb.thumbnail((360, 360), Image.Resampling.LANCZOS
+                                if hasattr(Image, "Resampling") else Image.ANTIALIAS)
+                st.image(thumb, caption=img_path.name, use_container_width=True)
+                # Hiện kích thước gốc bên dưới
+                st.caption(f"📐 {img.width}×{img.height}")
+                img.close()
+            except Exception:
+                st.caption(f"⚠️ {img_path.name}")
+
+    if len(all_imgs) > max_images:
+        st.caption(f"… và {len(all_imgs) - max_images} ảnh khác")
+
+
+# ============================================================
+# ĐẶT TÊN HÀNG LOẠT (BATCH RENAME)
+# ============================================================
+
+def batch_rename_files(final_dir: Path):
+    """
+    Đổi tên ảnh theo cấu trúc thư mục:
+      FINAL/Samsung_S25/Den/abc.jpg → Samsung_S25/Den/Samsung_S25_Den_01.jpg
+      FINAL/FolderName/xyz.jpg      → FolderName/FolderName_01.jpg
+
+    Giữ nguyên cấu trúc thư mục, chỉ đổi tên file.
+    Trả về số file đã đổi tên.
+    """
+    renamed = 0
+
+    # Tìm tất cả thư mục lá (chứa ảnh trực tiếp)
+    leaf_dirs = set()
+    for f in final_dir.rglob("*"):
+        if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp"):
+            leaf_dirs.add(f.parent)
+
+    for folder in sorted(leaf_dirs):
+        # Tạo prefix từ đường dẫn tương đối
+        rel = folder.relative_to(final_dir)
+        parts = [p for p in rel.parts if p]
+        prefix = "_".join(parts) if parts else "image"
+        # Làm sạch prefix
+        prefix = re.sub(r'[\\/*?:"<>|]', "", prefix)
+        prefix = re.sub(r"\s+", "_", prefix).strip("_") or "image"
+
+        # Lấy danh sách ảnh, sắp xếp theo tên
+        images = sorted([
+            f for f in folder.iterdir()
+            if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
+        ])
+
+        for idx, img in enumerate(images, start=1):
+            new_name = f"{prefix}_{idx:02d}{img.suffix}"
+            new_path = folder / new_name
+            if img != new_path:
+                # Tránh trùng tên nếu file đích đã tồn tại
+                if new_path.exists() and new_path != img:
+                    # Đổi tên tạm trước
+                    tmp = folder / f"_tmp_{idx:02d}_{img.name}"
+                    img.rename(tmp)
+                    img = tmp
+                img.rename(new_path)
+                renamed += 1
+
+    return renamed
+
+
+# ============================================================
+# LỊCH SỬ XỬ LÝ (PROCESSING HISTORY)
+# ============================================================
+
+def _init_history():
+    """Khởi tạo list lịch sử trong session_state."""
+    if "processing_history" not in st.session_state:
+        st.session_state.processing_history = []
+
+
+def add_to_history(source: str, detail: str, count: int,
+                   size_label: str, duration_sec: float):
+    """
+    Thêm 1 bản ghi vào lịch sử.
+    - source:     "Drive" | "Local" | "Web"
+    - detail:     tên sản phẩm / folder / file
+    - count:      số ảnh đã xử lý
+    - size_label: ví dụ "1020×680"
+    - duration_sec: thời gian xử lý (giây)
+    """
+    from datetime import datetime
+    _init_history()
+
+    entry = {
+        "time":     datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "source":   source,
+        "detail":   detail[:60],  # giới hạn dài
+        "count":    count,
+        "size":     size_label,
+        "duration": f"{duration_sec:.1f}s",
+    }
+    st.session_state.processing_history.insert(0, entry)  # mới nhất lên đầu
+    # Giữ tối đa 20 bản ghi
+    st.session_state.processing_history = st.session_state.processing_history[:20]
+
+
+def render_history_sidebar():
+    """Hiển thị lịch sử xử lý trong sidebar."""
+    _init_history()
+    history = st.session_state.processing_history
+    if not history:
+        st.caption("Chưa có lịch sử xử lý.")
+        return
+
+    for i, h in enumerate(history[:8]):  # hiện tối đa 8 gần nhất
+        icon = {"Drive": "🌐", "Local": "💻", "Web": "🛒"}.get(h["source"], "📦")
+        st.markdown(
+            f"<div style='font-size:.78rem;padding:5px 0;border-bottom:1px solid #334155'>"
+            f"{icon} <b>{h['detail']}</b><br>"
+            f"<span style='color:#94a3b8'>{h['time']} · {h['count']} ảnh · "
+            f"{h['size']} · ⏱ {h['duration']}</span></div>",
+            unsafe_allow_html=True,
+        )
+
+    if len(history) > 8:
+        st.caption(f"… và {len(history) - 8} bản ghi khác")
+
+
+def get_size_label(w, h, mode):
+    """Tạo label kích thước để lưu vào history."""
+    if mode == "crop_1000":
+        return "1000×1000 Crop"
+    if w is None:
+        return "Gốc"
+    return f"{w}×{h}"
