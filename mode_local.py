@@ -1,5 +1,6 @@
 import streamlit as st
 import shutil
+import time
 import tempfile
 import zipfile
 import concurrent.futures
@@ -8,6 +9,7 @@ from pathlib import Path
 from utils import (
     resize_image, ignore_system_files,
     check_pause_cancel_state, render_control_buttons,
+    show_preview, batch_rename_files, add_to_history, get_size_label,
 )
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff"}
@@ -21,7 +23,7 @@ def _make_zip(final_dir: Path, zip_path: Path):
                 zf.write(f, f.relative_to(final_dir))
 
 
-def run_mode_local(w, h, scale_pct=100, mode="letterbox"):
+def run_mode_local(w, h, scale_pct=100, mode="letterbox", rename=False):
     if "local_zip_data" not in st.session_state:
         st.session_state.local_zip_data = None
 
@@ -54,6 +56,7 @@ def run_mode_local(w, h, scale_pct=100, mode="letterbox"):
         st.session_state.local_zip_data  = None
 
         render_control_buttons()
+        _t_start = time.time()
         status_ph = st.empty()
         prog_ph   = st.progress(0)
         log_ph    = st.empty()
@@ -156,9 +159,19 @@ def run_mode_local(w, h, scale_pct=100, mode="letterbox"):
                 status_ph.info(f"✔️  Resize xong {done}/{len(valid)} ảnh — đang đóng gói...")
 
             # ── ĐÓNG GÓI ZIP ────────────────────────────────
+            _duration = time.time() - _t_start
             all_out = [f for f in final.rglob("*") if f.is_file() and f.stat().st_size > 0]
 
             if all_out:
+                # Đặt tên hàng loạt nếu bật
+                if rename:
+                    n_renamed = batch_rename_files(final)
+                    if n_renamed:
+                        log(f"✏️  Đã đổi tên {n_renamed} ảnh")
+
+                # Xem trước
+                show_preview(final)
+
                 zip_path = temp / "Local_Images_Done.zip"
                 _make_zip(final, zip_path)
 
@@ -169,6 +182,12 @@ def run_mode_local(w, h, scale_pct=100, mode="letterbox"):
                     log(f"📦  ZIP: {zip_path.stat().st_size // 1024} KB")
                 else:
                     status_ph.error("❌ ZIP không tạo được — lỗi bất thường.")
+
+                # Lưu lịch sử
+                names = [u.name for u in uploaded[:3]]
+                detail = ", ".join(names)
+                add_to_history("Local", detail, len(all_out),
+                               get_size_label(w, h, mode), _duration)
             else:
                 status_ph.error("❌ Không có ảnh nào xử lý được!")
 
