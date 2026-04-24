@@ -21,7 +21,7 @@ def _make_zip(final_dir: Path, zip_path: Path):
                 zf.write(f, f.relative_to(final_dir))
 
 
-def run_mode_local(w, h):
+def run_mode_local(w, h, scale_pct=100, mode="letterbox"):
     if "local_zip_data" not in st.session_state:
         st.session_state.local_zip_data = None
 
@@ -132,7 +132,8 @@ def run_mode_local(w, h):
                     rel  = fp.relative_to(raw)
                     out  = final / rel.with_suffix(".jpg")
                     out.parent.mkdir(parents=True, exist_ok=True)
-                    resize_image(fp, out, w, h)
+                    resize_image(fp, out, w, h,
+                                 scale_pct=scale_pct, mode=mode)
                     return (fp.name, True, "")
                 except Exception as e:
                     return (fp.name, False, str(e))
