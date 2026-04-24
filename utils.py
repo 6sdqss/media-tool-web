@@ -211,14 +211,26 @@ def download_direct_file(file_id: str, save_folder: Path, drive_name: str, servi
 
 
 # ============================================================
-# CÁC HÀM TIỆN ÍCH KHÁC (giữ nguyên)
+# RESIZE ẢNH (NÂNG CẤP: thêm scale_pct + mode crop_1000)
 # ============================================================
 
-def resize_image(image_path: Path, output_path: Path, width=None, height=None):
+def resize_image(image_path: Path, output_path: Path, width=None, height=None,
+                 scale_pct=100, mode="letterbox"):
+    """
+    Resize ảnh với các chế độ:
+    - mode="letterbox": Giữ tỉ lệ, fill nền trắng (mặc định)
+      + scale_pct: % phóng to ảnh trên canvas (100=vừa khung, >100=to hơn/crop, <100=nhỏ hơn)
+    - mode="crop_1000": Crop 1:1 chính giữa → resize về 1000×1000 (kiểu Photoshop)
+    """
+    if mode == "crop_1000":
+        crop_photoshop_square(image_path, output_path)
+        return
+
     if not width or not height:
         import shutil
         shutil.copy2(image_path, output_path)
         return
+
     try:
         with Image.open(image_path) as img:
             if img.mode in ("RGBA", "LA", "P"):
@@ -231,10 +243,21 @@ def resize_image(image_path: Path, output_path: Path, width=None, height=None):
 
             img_ratio = img.width / img.height
             target_ratio = width / height
+
+            # Tính kích thước "vừa khung" (fit)
             if img_ratio > target_ratio:
-                new_w, new_h = width, int(width / img_ratio)
+                fit_w, fit_h = width, int(width / img_ratio)
             else:
-                new_w, new_h = int(height * img_ratio), height
+                fit_w, fit_h = int(height * img_ratio), height
+
+            # Áp dụng scale_pct: phóng to/thu nhỏ so với kích thước fit
+            factor = scale_pct / 100.0
+            new_w = int(fit_w * factor)
+            new_h = int(fit_h * factor)
+
+            # Đảm bảo tối thiểu 1px
+            new_w = max(new_w, 1)
+            new_h = max(new_h, 1)
 
             try:
                 resample_filter = Image.Resampling.LANCZOS
@@ -242,11 +265,77 @@ def resize_image(image_path: Path, output_path: Path, width=None, height=None):
                 resample_filter = Image.ANTIALIAS
 
             resized = img.resize((new_w, new_h), resample_filter)
+
+            # Tạo canvas trắng và paste ảnh vào giữa
             new_img = Image.new("RGB", (width, height), (255, 255, 255))
-            new_img.paste(resized, ((width - new_w) // 2, (height - new_h) // 2))
+
+            # Tính vị trí paste (giữa canvas)
+            paste_x = (width - new_w) // 2
+            paste_y = (height - new_h) // 2
+
+            # Nếu ảnh lớn hơn canvas (scale > 100%), crop phần thừa
+            if new_w > width or new_h > height:
+                # Crop vùng giữa của ảnh đã resize để vừa canvas
+                crop_left = max(0, (new_w - width) // 2)
+                crop_top = max(0, (new_h - height) // 2)
+                crop_right = crop_left + min(new_w, width)
+                crop_bottom = crop_top + min(new_h, height)
+                cropped = resized.crop((crop_left, crop_top, crop_right, crop_bottom))
+                paste_x = max(0, (width - cropped.width) // 2)
+                paste_y = max(0, (height - cropped.height) // 2)
+                new_img.paste(cropped, (paste_x, paste_y))
+            else:
+                new_img.paste(resized, (paste_x, paste_y))
+
             new_img.save(output_path, "JPEG", quality=95)
     except Exception as e:
         print(f"Resize error: {e}")
+
+
+def crop_photoshop_square(image_path: Path, output_path: Path, target=1000):
+    """
+    Crop 1:1 chính giữa kiểu Photoshop → resize về target×target.
+    - Ảnh lớn → crop center 1:1 → resize down (không upscale)
+    - Ảnh nhỏ → giữ nguyên kích thước, đặt vào nền trắng target×target
+    """
+    try:
+        with Image.open(image_path) as img:
+            if img.mode in ("RGBA", "LA", "P"):
+                img = img.convert("RGBA")
+                bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
+                bg.paste(img, (0, 0), img)
+                img = bg.convert("RGB")
+            else:
+                img = img.convert("RGB")
+
+            w, h = img.size
+
+            # Ảnh lớn → crop 1:1 giữa → resize down
+            if w > target or h > target:
+                crop_size = min(w, h)
+                left = (w - crop_size) // 2
+                top = (h - crop_size) // 2
+                cropped = img.crop((left, top, left + crop_size, top + crop_size))
+
+                if crop_size > target:
+                    try:
+                        resample = Image.Resampling.LANCZOS
+                    except AttributeError:
+                        resample = Image.ANTIALIAS
+                    cropped = cropped.resize((target, target), resample)
+
+                final_img = cropped
+            else:
+                # Ảnh nhỏ → không upscale, đặt lên nền trắng
+                canvas = Image.new("RGB", (target, target), (255, 255, 255))
+                offset_x = (target - w) // 2
+                offset_y = (target - h) // 2
+                canvas.paste(img, (offset_x, offset_y))
+                final_img = canvas
+
+            final_img.save(output_path, "JPEG", quality=95)
+    except Exception as e:
+        print(f"Crop 1000 error: {e}")
 
 
 def ignore_system_files(path: Path):
