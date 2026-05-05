@@ -1,6 +1,14 @@
+[server]
+maxUploadSize = 2048
+maxMessageSize = 2048
+enableWebsocketCompression = false
+
+[runner]
+fastReruns = false
+
 [theme]
-backgroundColor = "#F9FAFB"
-secondaryBackgroundColor = "#FFFFFF"
-primaryColor = "#2563EB"
-textColor = "#1F2937"
-font = "sans serif"
+base = "light"
+primaryColor = "#4f46e5"
+backgroundColor = "#f8fbff"
+secondaryBackgroundColor = "#eef2ff"
+textColor = "#111827"
