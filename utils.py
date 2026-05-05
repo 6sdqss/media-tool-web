@@ -1,10 +1,12 @@
 """
-utils.py — Media Tool Pro VIP Pro v7.0
-Nâng cấp trọng tâm:
-- Tối ưu xử lý ảnh lớn / ảnh dung lượng cao
+utils.py — Media Tool Pro VIP Pro v9.0
+─────────────────────────────────────────────────────────
+Trọng tâm nâng cấp v9.0:
+- UI compact, gọn nhẹ, mobile-friendly
+- Tối ưu xử lý ảnh lớn / batch nặng
 - Hỗ trợ scale + offset riêng từng ảnh
-- Tạo workspace batch bền vững cho tab chỉnh tay sau xử lý
-- Giữ tương thích với kiến trúc code cũ
+- Workspace bền vững cho tab Studio Scale
+- Helpers tái sử dụng cho mọi mode
 """
 
 from __future__ import annotations
@@ -14,18 +16,18 @@ import os
 import re
 import json
 import time
-import math
 import shutil
 import hashlib
 import tempfile
 import warnings
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
 from PIL import Image, ImageFile, ImageOps, UnidentifiedImageError
 
-# Google APIs (giữ tương thích code cũ)
+# Google APIs
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
@@ -34,7 +36,6 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 # ╔══════════════════════════════════════════════════════════════╗
 # ║  CẤU HÌNH ẢNH LỚN                                            ║
 # ╚══════════════════════════════════════════════════════════════╝
-
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 Image.MAX_IMAGE_PIXELS = None
 try:
@@ -42,18 +43,10 @@ try:
 except Exception:
     pass
 
-try:
-    import pyvips  # type: ignore
-    HAS_PYVIPS = True
-except Exception:
-    pyvips = None
-    HAS_PYVIPS = False
-
 
 # ╔══════════════════════════════════════════════════════════════╗
 # ║  HẰNG SỐ                                                     ║
 # ╚══════════════════════════════════════════════════════════════╝
-
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".gif"}
 
 EXPORT_FORMATS = {
@@ -70,8 +63,6 @@ SIZE_PRESETS = {
     "Giữ gốc": (None, None, "letterbox"),
 }
 
-QUICK_PRESETS = {}
-
 BATCH_ROOT = Path(tempfile.gettempdir()) / "media_tool_pro_vip_batches"
 BATCH_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -79,11 +70,12 @@ BATCH_ROOT.mkdir(parents=True, exist_ok=True)
 # ╔══════════════════════════════════════════════════════════════╗
 # ║  SESSION DEFAULTS                                            ║
 # ╚══════════════════════════════════════════════════════════════╝
-
 def init_app_state():
+    """Khởi tạo các state mặc định một lần duy nhất."""
     defaults = {
         "download_status": "idle",
         "logged_in": False,
+        "auth_user": None,
         "processing_history": [],
         "session_stats": {
             "total_images": 0,
@@ -92,6 +84,8 @@ def init_app_state():
         },
         "web_scanned": [],
         "web_zip_path": "",
+        "drive_zip_data": None,
+        "local_zip_data": None,
         "adjust_zip_path": "",
         "last_batch_manifest": [],
         "last_batch_cfg": {},
@@ -105,7 +99,6 @@ def init_app_state():
 # ╔══════════════════════════════════════════════════════════════╗
 # ║  GOOGLE DRIVE — Kết nối & Upload                            ║
 # ╚══════════════════════════════════════════════════════════════╝
-
 def get_gdrive_service():
     """Tạo Google Drive service từ Streamlit Secrets hoặc credentials.json."""
     try:
@@ -317,7 +310,6 @@ def download_direct_file(file_id: str, save_folder: Path,
 # ╔══════════════════════════════════════════════════════════════╗
 # ║  TIỆN ÍCH CHUNG                                              ║
 # ╚══════════════════════════════════════════════════════════════╝
-
 def clean_name(name: str) -> str:
     name = re.sub(r'[\\/*?:"<>|]', "", str(name or ""))
     name = re.sub(r"\s+", "_", name).strip("_")
@@ -412,7 +404,7 @@ def safe_image_meta(image_path: Path) -> dict:
         }
 
 
-def build_preview_image(src_path: Path, preview_dir: Path, max_size: int = 520) -> str:
+def build_preview_image(src_path: Path, preview_dir: Path, max_size: int = 480) -> str:
     preview_dir.mkdir(parents=True, exist_ok=True)
     preview_path = preview_dir / f"preview_{compute_file_hash(str(src_path))}.jpg"
     try:
@@ -420,7 +412,7 @@ def build_preview_image(src_path: Path, preview_dir: Path, max_size: int = 520) 
             img = ImageOps.exif_transpose(img)
             thumb = _convert_to_rgb(img)
             thumb.thumbnail((max_size, max_size), _get_resample_filter())
-            thumb.save(preview_path, "JPEG", quality=88, optimize=True)
+            thumb.save(preview_path, "JPEG", quality=85, optimize=True)
         return str(preview_path)
     except Exception:
         return str(src_path)
@@ -433,18 +425,19 @@ def check_pause_cancel_state() -> bool:
 
 
 def render_control_buttons():
-    st.markdown('<div class="control-box">', unsafe_allow_html=True)
-    col_pause, col_resume, col_cancel = st.columns(3)
-    with col_pause:
-        if st.button("⏸️ Tạm dừng", use_container_width=True, key=f"pause_{time.time_ns()}"):
+    """Hiển thị 3 nút điều khiển — phong cách compact."""
+    st.markdown('<div class="ctrl-row">', unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if st.button("⏸ Tạm dừng", use_container_width=True, key=f"pause_{time.time_ns()}"):
             st.session_state.download_status = "paused"
             st.rerun()
-    with col_resume:
-        if st.button("▶️ Tiếp tục", use_container_width=True, key=f"resume_{time.time_ns()}"):
+    with c2:
+        if st.button("▶ Tiếp tục", use_container_width=True, key=f"resume_{time.time_ns()}"):
             st.session_state.download_status = "running"
             st.rerun()
-    with col_cancel:
-        if st.button("⏹️ Hủy bỏ", type="primary", use_container_width=True, key=f"cancel_{time.time_ns()}"):
+    with c3:
+        if st.button("⏹ Hủy bỏ", type="primary", use_container_width=True, key=f"cancel_{time.time_ns()}"):
             st.session_state.download_status = "cancelled"
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
@@ -453,7 +446,6 @@ def render_control_buttons():
 # ╔══════════════════════════════════════════════════════════════╗
 # ║  RESIZE ENGINE                                               ║
 # ╚══════════════════════════════════════════════════════════════╝
-
 def _get_resample_filter():
     try:
         return Image.Resampling.LANCZOS
@@ -588,19 +580,11 @@ def resize_image(image_path: Path, output_path: Path,
                  quality: int = 95, export_format: str = "JPEG (.jpg)",
                  offset_x: int = 0, offset_y: int = 0,
                  huge_image_mode: bool = True):
-    """
-    Resize ảnh với nhiều chế độ, nâng cấp thêm:
-    - scale riêng từng ảnh
-    - offset X/Y để chỉnh vị trí khi zoom > 100%
-    - tối ưu đọc ảnh lớn
-    """
+    """Resize ảnh hỗ trợ scale + offset riêng từng ảnh."""
     if mode == "crop_1000":
         crop_photoshop_square(
-            image_path,
-            output_path,
-            target=1000,
-            quality=quality,
-            export_format=export_format,
+            image_path, output_path,
+            target=1000, quality=quality, export_format=export_format,
         )
         return
 
@@ -630,8 +614,7 @@ def resize_image(image_path: Path, output_path: Path,
                 crop_left = _calc_centered_crop_position(extra_x, int(offset_x))
                 crop_top = _calc_centered_crop_position(extra_y, int(offset_y))
                 crop_box = (
-                    crop_left,
-                    crop_top,
+                    crop_left, crop_top,
                     crop_left + min(width, new_width),
                     crop_top + min(height, new_height),
                 )
@@ -657,11 +640,7 @@ def resize_to_multi_sizes(src_path: Path, final_dir: Path, folder_name: str,
                           export_format: str = "JPEG (.jpg)",
                           per_image_settings: dict | None = None,
                           huge_image_mode: bool = True):
-    """
-    Resize 1 ảnh nguồn sang nhiều kích thước cùng lúc.
-    Hỗ trợ override riêng từng ảnh qua per_image_settings:
-        {"scale_pct": 108, "offset_x": -15, "offset_y": 10}
-    """
+    """Resize 1 ảnh sang nhiều kích thước cùng lúc."""
     fmt_info = EXPORT_FORMATS.get(export_format, EXPORT_FORMATS["JPEG (.jpg)"])
     is_multi = len(sizes) > 1
     item_scale = int((per_image_settings or {}).get("scale_pct", scale_pct))
@@ -677,16 +656,11 @@ def resize_to_multi_sizes(src_path: Path, final_dir: Path, folder_name: str,
         output_dir.mkdir(parents=True, exist_ok=True)
         output_file = output_dir / f"{file_stem}{fmt_info['ext']}"
         resize_image(
-            src_path,
-            output_file,
-            width=target_w,
-            height=target_h,
-            scale_pct=item_scale,
-            mode=resize_mode,
-            quality=quality,
-            export_format=export_format,
-            offset_x=item_offset_x,
-            offset_y=item_offset_y,
+            src_path, output_file,
+            width=target_w, height=target_h,
+            scale_pct=item_scale, mode=resize_mode,
+            quality=quality, export_format=export_format,
+            offset_x=item_offset_x, offset_y=item_offset_y,
             huge_image_mode=huge_image_mode,
         )
 
@@ -694,7 +668,6 @@ def resize_to_multi_sizes(src_path: Path, final_dir: Path, folder_name: str,
 # ╔══════════════════════════════════════════════════════════════╗
 # ║  NAMING TEMPLATE                                             ║
 # ╚══════════════════════════════════════════════════════════════╝
-
 def apply_name_template(template: str, name: str = "", color: str = "",
                         index: int = 1, original: str = "") -> str:
     result = template
@@ -748,10 +721,8 @@ def batch_rename_with_template(final_dir: Path, template: str = "{name}_{nn}") -
 
             new_name = apply_name_template(
                 template,
-                name=product_name,
-                color=color_name,
-                index=idx,
-                original=original_stem,
+                name=product_name, color=color_name,
+                index=idx, original=original_stem,
             )
             final_name = f"{new_name}{img_path.suffix}"
             temp_mapping.append((temp_path, final_name))
@@ -767,14 +738,10 @@ def batch_rename_with_template(final_dir: Path, template: str = "{name}_{nn}") -
 # ╔══════════════════════════════════════════════════════════════╗
 # ║  ZIP / PREVIEW / SUMMARY                                     ║
 # ╚══════════════════════════════════════════════════════════════╝
-
 def make_zip(source_dir: Path, zip_path: Path, compresslevel: int = 6):
-    import zipfile
-
     zip_path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(
-        zip_path,
-        "w",
+        zip_path, "w",
         compression=zipfile.ZIP_DEFLATED,
         compresslevel=max(0, min(9, int(compresslevel))),
     ) as zf:
@@ -783,7 +750,8 @@ def make_zip(source_dir: Path, zip_path: Path, compresslevel: int = 6):
                 zf.write(file_path, file_path.relative_to(source_dir))
 
 
-def show_preview(final_dir: Path, max_images: int = 8):
+def show_preview(final_dir: Path, max_images: int = 6):
+    """Preview compact 3 cột."""
     all_images = sorted([
         f for f in final_dir.rglob("*")
         if f.is_file()
@@ -796,24 +764,28 @@ def show_preview(final_dir: Path, max_images: int = 8):
     preview_images = all_images[:max_images]
     total = len(all_images)
     st.markdown(
-        f"<div class='sec-title'>👁️ XEM TRƯỚC ({len(preview_images)}/{total} ảnh)</div>",
+        f"<div class='sec-title'>👁 Xem trước ({len(preview_images)}/{total})</div>",
         unsafe_allow_html=True,
     )
 
-    columns = st.columns(min(4, len(preview_images)))
+    columns = st.columns(min(3, len(preview_images)))
     for idx, img_path in enumerate(preview_images):
         with columns[idx % len(columns)]:
             try:
                 with Image.open(img_path) as img:
                     thumb = img.copy()
-                    thumb.thumbnail((360, 360), _get_resample_filter())
+                    thumb.thumbnail((300, 300), _get_resample_filter())
                     st.image(thumb, caption=img_path.name, use_container_width=True)
-                    st.caption(f"📐 {img.width}×{img.height} · 💾 {readable_file_size(img_path.stat().st_size)}")
+                    st.markdown(
+                        f"<div class='preview-meta'>{img.width}×{img.height} · "
+                        f"{readable_file_size(img_path.stat().st_size)}</div>",
+                        unsafe_allow_html=True,
+                    )
             except Exception:
-                st.caption(f"⚠️ {img_path.name}")
+                st.caption(f"⚠ {img_path.name}")
 
     if total > max_images:
-        st.caption(f"… và {total - max_images} ảnh khác trong batch")
+        st.caption(f"… và {total - max_images} ảnh khác")
 
 
 def show_processing_summary(final_dir: Path, sizes: list, duration: float):
@@ -824,14 +796,12 @@ def show_processing_summary(final_dir: Path, sizes: list, duration: float):
     total_size = sum(f.stat().st_size for f in all_files)
     size_labels = " + ".join([get_size_label(w, h, m) for w, h, m in sizes])
     st.markdown(
-        f"<div style='background:linear-gradient(135deg,#eefcf6,#dcfce7);"
-        f"border:1px solid #86efac;border-radius:16px;padding:16px 18px;margin:10px 0;"
-        f"font-size:.88rem;line-height:1.8'>"
-        f"<b style='color:#166534'>📊 Tổng kết batch</b><br>"
-        f"📁 <b>{len(all_files)}</b> ảnh output &nbsp;·&nbsp; "
-        f"💾 <b>{readable_file_size(total_size)}</b> &nbsp;·&nbsp; "
+        f"<div class='summary-card'>"
+        f"<b>📊 Tổng kết batch</b><br>"
+        f"📁 <b>{len(all_files)}</b> ảnh · "
+        f"💾 <b>{readable_file_size(total_size)}</b> · "
         f"⏱ <b>{duration:.1f}s</b><br>"
-        f"📐 <b>{size_labels}</b>"
+        f"📐 {size_labels}"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -841,31 +811,22 @@ def render_batch_kpis(meta: dict):
     if not meta:
         return
     col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Ảnh nguồn", meta.get("source_count", 0))
-    with col2:
-        st.metric("Ảnh output", meta.get("output_count", 0))
-    with col3:
-        st.metric("Dung lượng ZIP", meta.get("zip_size", "0 B"))
-    with col4:
-        st.metric("Batch", meta.get("batch_id", "-"))
+    col1.metric("Nguồn", meta.get("source_count", 0))
+    col2.metric("Output", meta.get("output_count", 0))
+    col3.metric("ZIP", meta.get("zip_size", "0 B"))
+    col4.metric("Batch", str(meta.get("batch_id", "-"))[-10:])
 
 
 # ╔══════════════════════════════════════════════════════════════╗
 # ║  HISTORY & SESSION STATS                                     ║
 # ╚══════════════════════════════════════════════════════════════╝
-
-def _init_history():
-    init_app_state()
-
-
 def add_to_history(source: str, detail: str, count: int,
                    size_label: str, duration_sec: float):
-    _init_history()
+    init_app_state()
     entry = {
         "time": datetime.now().strftime("%d/%m %H:%M"),
         "source": source,
-        "detail": detail[:70],
+        "detail": (detail or "")[:60],
         "count": count,
         "size": size_label,
         "duration": f"{duration_sec:.1f}s",
@@ -880,45 +841,46 @@ def add_to_history(source: str, detail: str, count: int,
 
 
 def render_history_sidebar():
-    _init_history()
+    init_app_state()
     history = st.session_state.processing_history
     if not history:
-        st.caption("Chưa có lịch sử xử lý.")
+        st.caption("Chưa có lịch sử.")
         return
 
-    for entry in history[:6]:
-        icon = {"Drive": "🌐", "Local": "💻", "Web": "🛒", "Adjust": "🎚️"}.get(entry["source"], "📦")
+    icons = {"Drive": "🌐", "Local": "💻", "Web": "🛒", "Adjust": "🎚"}
+    for entry in history[:5]:
+        icon = icons.get(entry["source"], "📦")
         st.markdown(
-            f"<div style='font-size:.74rem;padding:6px 0;border-bottom:1px solid rgba(99,130,190,0.1)'>"
-            f"{icon} <b style='color:#e2e8f0'>{entry['detail']}</b><br>"
-            f"<span style='color:#64748b;font-size:.7rem'>"
-            f"{entry['time']} · {entry['count']} ảnh · {entry['size']} · ⏱ {entry['duration']}"
-            f"</span></div>",
+            f"<div class='history-item'>"
+            f"<div class='hi-top'>{icon} <b>{entry['detail']}</b></div>"
+            f"<div class='hi-bot'>{entry['time']} · {entry['count']} ảnh · ⏱ {entry['duration']}</div>"
+            f"</div>",
             unsafe_allow_html=True,
         )
 
-    remaining = len(history) - 6
+    remaining = len(history) - 5
     if remaining > 0:
-        st.caption(f"+{remaining} bản ghi trước đó")
+        st.caption(f"+{remaining} bản ghi cũ")
 
 
 def render_session_stats():
-    _init_history()
+    init_app_state()
     stats = st.session_state.session_stats
     if stats["total_images"] == 0:
+        st.caption("Chưa có dữ liệu phiên.")
         return
 
     st.markdown(
-        f"<div style='display:flex;gap:6px;margin:4px 0 8px'>"
-        f"<div style='flex:1;background:rgba(99,102,241,0.15);border-radius:10px;padding:8px;text-align:center'>"
-        f"<div style='font-size:1.15rem;font-weight:800;color:#c7d2fe'>{stats['total_images']}</div>"
-        f"<div style='font-size:.66rem;color:#94a3b8'>Ảnh</div></div>"
-        f"<div style='flex:1;background:rgba(16,185,129,0.15);border-radius:10px;padding:8px;text-align:center'>"
-        f"<div style='font-size:1.15rem;font-weight:800;color:#a7f3d0'>{stats['total_batches']}</div>"
-        f"<div style='font-size:.66rem;color:#94a3b8'>Batch</div></div>"
-        f"<div style='flex:1;background:rgba(251,191,36,0.15);border-radius:10px;padding:8px;text-align:center'>"
-        f"<div style='font-size:1.15rem;font-weight:800;color:#fde68a'>{stats['total_time']:.0f}s</div>"
-        f"<div style='font-size:.66rem;color:#94a3b8'>Thời gian</div></div>"
+        f"<div class='stat-row'>"
+        f"<div class='stat-pill stat-a'>"
+        f"<div class='sp-num'>{stats['total_images']}</div>"
+        f"<div class='sp-lbl'>Ảnh</div></div>"
+        f"<div class='stat-pill stat-b'>"
+        f"<div class='sp-num'>{stats['total_batches']}</div>"
+        f"<div class='sp-lbl'>Batch</div></div>"
+        f"<div class='stat-pill stat-c'>"
+        f"<div class='sp-num'>{stats['total_time']:.0f}s</div>"
+        f"<div class='sp-lbl'>Time</div></div>"
         f"</div>",
         unsafe_allow_html=True,
     )
