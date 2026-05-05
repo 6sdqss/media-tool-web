@@ -535,7 +535,7 @@ for tab, key in zip(tabs, tab_keys):
             else:
                 run_mode_local(config)
 
-elif key == "guide":
+        elif key == "guide":
             st.markdown(
                 "<div class='guide-box'>"
                 "<div style='font-size:1rem;font-weight:900;color:#1e1b4b;margin-bottom:8px'>"
@@ -559,3 +559,9 @@ elif key == "guide":
                 st.markdown("**Bước 2 — Cấu hình Streamlit Secrets:**")
                 st.markdown("Vào Manage app → Settings → Secrets, thêm đoạn sau:")
                 st.code('GITHUB_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxxxxxx"\nGITHUB_REPO = "username/media-tool-web"\nGITHUB_BRANCH = "main"', language="toml")
+
+        elif key == "admin":
+            try:
+                render_admin_panel()
+            except Exception as e:
+                st.warning(f"Module Admin chưa tải được: {e}")
