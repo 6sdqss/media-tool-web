@@ -12,7 +12,9 @@
     "hoangpro": {
         "password": "151055d002ebfe4f59f31b6681cc130b551679bba298e9bfa2db492dae25944e",
         "role": "user",
-        "status": "pending",
-        "permissions": []
+        "status": "approved",
+        "permissions": [
+            "web"
+        ]
     }
 }
