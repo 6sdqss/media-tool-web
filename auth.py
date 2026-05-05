@@ -1,5 +1,6 @@
 """
-auth.py — Authentication & Auto-Sync GitHub System
+auth.py — Authentication & Auto-Sync GitHub System v9.0
+─────────────────────────────────────────────────────────
 Quản lý đăng ký, đăng nhập, phân quyền và chống mất data trên Streamlit Cloud.
 
 Cơ chế chống mất tài khoản khi deploy lên Streamlit Cloud:
@@ -20,17 +21,20 @@ from typing import Tuple, Optional
 import requests
 import streamlit as st
 
+# ═══════════════════════════════════════════════════════════════
+# HẰNG SỐ
+# ═══════════════════════════════════════════════════════════════
 DB_FILE = "users_db.json"
 _LAST_PULL_KEY = "_last_github_pull_ts"
 _PULL_INTERVAL_SECONDS = 30  # Pull lại sau mỗi 30s để giảm gọi API
+_INTERNAL_SALT = "MediaToolProVIP_v9_2026"
+
+DEFAULT_PERMISSIONS = ["web", "studio", "drive", "local"]
 
 
 # ═══════════════════════════════════════════════════════════════
 # HASH MẬT KHẨU (SHA-256 + salt nội bộ)
 # ═══════════════════════════════════════════════════════════════
-_INTERNAL_SALT = "MediaToolProVIP_v7_2026"
-
-
 def hash_password(password: str) -> str:
     """Mã hóa mật khẩu bằng SHA-256 với salt nội bộ."""
     salted = f"{_INTERNAL_SALT}::{password}"
@@ -52,16 +56,11 @@ def _get_github_config() -> Tuple[Optional[str], Optional[str], str]:
 
 
 def pull_from_github(force: bool = False) -> bool:
-    """
-    Tải file users_db.json mới nhất từ GitHub về local.
-    - force=True: pull ngay không chờ throttle
-    - force=False: chỉ pull nếu đã quá _PULL_INTERVAL_SECONDS từ lần trước
-    """
+    """Tải file users_db.json mới nhất từ GitHub về local."""
     token, repo, branch = _get_github_config()
     if not token or not repo:
         return False
 
-    # Throttle để giảm gọi API
     if not force:
         last_pull = st.session_state.get(_LAST_PULL_KEY, 0)
         if time.time() - last_pull < _PULL_INTERVAL_SECONDS:
@@ -79,7 +78,6 @@ def pull_from_github(force: bool = False) -> bool:
             content_b64 = data.get("content", "")
             if content_b64:
                 raw = base64.b64decode(content_b64)
-                # Validate JSON trước khi ghi
                 try:
                     json.loads(raw.decode("utf-8"))
                     with open(DB_FILE, "wb") as f:
@@ -107,7 +105,6 @@ def push_to_github() -> bool:
         "Accept": "application/vnd.github.v3+json",
     }
 
-    # Lấy SHA hiện tại để overwrite
     sha = None
     try:
         resp_get = requests.get(f"{url}?ref={branch}", headers=headers, timeout=12)
@@ -137,9 +134,6 @@ def push_to_github() -> bool:
 # ═══════════════════════════════════════════════════════════════
 # DATABASE LOCAL
 # ═══════════════════════════════════════════════════════════════
-DEFAULT_PERMISSIONS = ["web", "studio", "drive", "local"]
-
-
 def _create_default_db() -> dict:
     """Tạo DB mặc định với master admin ducpro."""
     return {
@@ -156,7 +150,6 @@ def _create_default_db() -> dict:
 
 def load_db() -> dict:
     """Tải DB từ file JSON. Tự pull GitHub nếu cấu hình."""
-    # Pull GitHub trước (nếu có config)
     pull_from_github(force=False)
 
     if not os.path.exists(DB_FILE):
@@ -169,13 +162,11 @@ def load_db() -> dict:
     try:
         with open(DB_FILE, "r", encoding="utf-8") as f:
             db = json.load(f)
-        # Đảm bảo luôn có master admin
         if "ducpro" not in db:
             db["ducpro"] = _create_default_db()["ducpro"]
             save_db(db)
         return db
     except (json.JSONDecodeError, OSError):
-        # File hỏng → khôi phục mặc định
         db = _create_default_db()
         save_db(db)
         return db
@@ -262,13 +253,12 @@ def update_user_admin(username: str, new_status: str,
     if username not in db:
         return False
     if db[username].get("role") == "admin" and username == "ducpro":
-        # Không cho thay đổi master admin
         new_status = "approved"
         new_permissions = DEFAULT_PERMISSIONS.copy()
 
     db[username]["status"] = new_status
     db[username]["permissions"] = list(new_permissions or [])
-    if note:
+    if note is not None:
         db[username]["note"] = note
     save_db(db)
     return True
