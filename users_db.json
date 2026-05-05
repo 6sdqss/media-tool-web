@@ -1,0 +1,18 @@
+{
+    "ducpro": {
+        "password": "2ad6207d5adb2bcb48b11ea6a089233de3101fae49a7f5bb720e05a1383d83ef",
+        "role": "admin",
+        "status": "approved",
+        "permissions": [
+            "drive",
+            "local",
+            "web"
+        ]
+    },
+    "hoangpro": {
+        "password": "151055d002ebfe4f59f31b6681cc130b551679bba298e9bfa2db492dae25944e",
+        "role": "user",
+        "status": "pending",
+        "permissions": []
+    }
+}
