@@ -2,13 +2,18 @@
 maxUploadSize = 2048
 maxMessageSize = 2048
 enableWebsocketCompression = false
+headless = true
 
 [runner]
 fastReruns = false
 
+[browser]
+gatherUsageStats = false
+
 [theme]
-base = "light"
-primaryColor = "#4f46e5"
-backgroundColor = "#f8fbff"
-secondaryBackgroundColor = "#eef2ff"
-textColor = "#111827"
+base = "dark"
+primaryColor = "#8b5cf6"
+backgroundColor = "#0b0b12"
+secondaryBackgroundColor = "#15151f"
+textColor = "#e2e8f0"
+font = "sans serif"
