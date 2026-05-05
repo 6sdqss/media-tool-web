@@ -1,7 +1,8 @@
 """
-utils.py — Media Tool Pro v6.0
+utils.py — Media Tool Pro VIP v6.0
 Thư viện tiện ích: Google Drive API, Resize ảnh, Naming template,
 Preview, History, Session stats, Presets.
+(Đã mở khóa giới hạn dung lượng ảnh: xử lý file 500-600MB+ thoải mái).
 """
 
 import os
@@ -11,8 +12,12 @@ import time
 import shutil
 import streamlit as st
 from pathlib import Path
-from PIL import Image
 from datetime import datetime
+
+# Pillow - ĐÃ MỞ KHÓA MAX IMAGE PIXELS ĐỂ XỬ LÝ ẢNH SIÊU NẶNG
+from PIL import Image, ImageFile
+Image.MAX_IMAGE_PIXELS = None
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # Google APIs
 from google.oauth2 import service_account
@@ -41,37 +46,7 @@ SIZE_PRESETS = {
     "Giữ gốc":                  (None, None, "letterbox"),
 }
 
-# Các bộ preset cấu hình nhanh
-QUICK_PRESETS = {
-    "TGDD / DMX": {
-        "sizes": ["1020×680 Ngang chuẩn"],
-        "quality": 95,
-        "scale": 100,
-        "template": "{name}_{nn}",
-        "format": "JPEG (.jpg)",
-    },
-    "Shopee / Lazada": {
-        "sizes": ["1200×1200 Vuông", "800×800 Shopee"],
-        "quality": 85,
-        "scale": 100,
-        "template": "{name}_{nn}",
-        "format": "JPEG (.jpg)",
-    },
-    "TikTok Shop": {
-        "sizes": ["1200×1200 Vuông"],
-        "quality": 90,
-        "scale": 105,
-        "template": "{name}_{color}_{nn}",
-        "format": "JPEG (.jpg)",
-    },
-    "Photoshop Crop": {
-        "sizes": ["1000×1000 PS Crop"],
-        "quality": 95,
-        "scale": 100,
-        "template": "{name}_{nn}",
-        "format": "JPEG (.jpg)",
-    },
-}
+# (Đã xóa QUICK_PRESETS theo yêu cầu)
 
 
 # ╔══════════════════════════════════════════════════════════════╗
