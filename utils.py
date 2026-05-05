@@ -1,52 +1,105 @@
 """
-utils.py — Media Tool Pro VIP v6.0
-Thư viện tiện ích: Google Drive API, Resize ảnh, Naming template,
-Preview, History, Session stats, Presets.
-(Đã mở khóa giới hạn dung lượng ảnh: xử lý file 500-600MB+ thoải mái).
+utils.py — Media Tool Pro VIP Pro v7.0
+Nâng cấp trọng tâm:
+- Tối ưu xử lý ảnh lớn / ảnh dung lượng cao
+- Hỗ trợ scale + offset riêng từng ảnh
+- Tạo workspace batch bền vững cho tab chỉnh tay sau xử lý
+- Giữ tương thích với kiến trúc code cũ
 """
 
+from __future__ import annotations
+
+import io
 import os
 import re
-import io
+import json
 import time
+import math
 import shutil
-import streamlit as st
-from pathlib import Path
+import hashlib
+import tempfile
+import warnings
 from datetime import datetime
+from pathlib import Path
 
-# Pillow - ĐÃ MỞ KHÓA MAX IMAGE PIXELS ĐỂ XỬ LÝ ẢNH SIÊU NẶNG
-from PIL import Image, ImageFile
-Image.MAX_IMAGE_PIXELS = None
-ImageFile.LOAD_TRUNCATED_IMAGES = True
+import streamlit as st
+from PIL import Image, ImageFile, ImageOps, UnidentifiedImageError
 
-# Google APIs
+# Google APIs (giữ tương thích code cũ)
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
 
 # ╔══════════════════════════════════════════════════════════════╗
-# ║  HẰNG SỐ                                                    ║
+# ║  CẤU HÌNH ẢNH LỚN                                            ║
+# ╚══════════════════════════════════════════════════════════════╝
+
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+Image.MAX_IMAGE_PIXELS = None
+try:
+    warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+except Exception:
+    pass
+
+try:
+    import pyvips  # type: ignore
+    HAS_PYVIPS = True
+except Exception:
+    pyvips = None
+    HAS_PYVIPS = False
+
+
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  HẰNG SỐ                                                     ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".gif"}
 
 EXPORT_FORMATS = {
-    "JPEG (.jpg)":  {"ext": ".jpg",  "pil_format": "JPEG", "mime": "image/jpeg"},
-    "PNG (.png)":   {"ext": ".png",  "pil_format": "PNG",  "mime": "image/png"},
+    "JPEG (.jpg)": {"ext": ".jpg", "pil_format": "JPEG", "mime": "image/jpeg"},
+    "PNG (.png)": {"ext": ".png", "pil_format": "PNG", "mime": "image/png"},
     "WebP (.webp)": {"ext": ".webp", "pil_format": "WEBP", "mime": "image/webp"},
 }
 
 SIZE_PRESETS = {
-    "1020×680 Ngang chuẩn":     (1020, 680,  "letterbox"),
-    "1020×570 Ngang rộng":      (1020, 570,  "letterbox"),
-    "1200×1200 Vuông":          (1200, 1200, "letterbox"),
-    "800×800 Shopee":           (800,  800,  "letterbox"),
-    "1000×1000 PS Crop":        (1000, 1000, "crop_1000"),
-    "Giữ gốc":                  (None, None, "letterbox"),
+    "1020×680 TGDD chuẩn": (1020, 680, "letterbox"),
+    "1200×1200 Vuông": (1200, 1200, "letterbox"),
+    "800×800 Sàn TMĐT": (800, 800, "letterbox"),
+    "1000×1000 Crop giữa": (1000, 1000, "crop_1000"),
+    "Giữ gốc": (None, None, "letterbox"),
 }
 
-# (Đã xóa QUICK_PRESETS theo yêu cầu)
+QUICK_PRESETS = {}
+
+BATCH_ROOT = Path(tempfile.gettempdir()) / "media_tool_pro_vip_batches"
+BATCH_ROOT.mkdir(parents=True, exist_ok=True)
+
+
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  SESSION DEFAULTS                                            ║
+# ╚══════════════════════════════════════════════════════════════╝
+
+def init_app_state():
+    defaults = {
+        "download_status": "idle",
+        "logged_in": False,
+        "processing_history": [],
+        "session_stats": {
+            "total_images": 0,
+            "total_batches": 0,
+            "total_time": 0.0,
+        },
+        "web_scanned": [],
+        "web_zip_path": "",
+        "adjust_zip_path": "",
+        "last_batch_manifest": [],
+        "last_batch_cfg": {},
+        "last_batch_meta": {},
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
 
 # ╔══════════════════════════════════════════════════════════════╗
@@ -55,7 +108,6 @@ SIZE_PRESETS = {
 
 def get_gdrive_service():
     """Tạo Google Drive service từ Streamlit Secrets hoặc credentials.json."""
-    # Ưu tiên 1: Streamlit Secrets (deploy trên cloud)
     try:
         if "gcp_service_account" in st.secrets:
             creds = service_account.Credentials.from_service_account_info(
@@ -66,7 +118,6 @@ def get_gdrive_service():
     except Exception:
         pass
 
-    # Ưu tiên 2: File credentials.json (chạy local)
     try:
         if os.path.exists("credentials.json"):
             creds = service_account.Credentials.from_service_account_file(
@@ -81,7 +132,6 @@ def get_gdrive_service():
 
 
 def create_drive_folder(service, folder_name: str, parent_id: str) -> str:
-    """Tạo thư mục mới trên Drive, trả về folder ID."""
     metadata = {
         "name": folder_name,
         "mimeType": "application/vnd.google-apps.folder",
@@ -92,35 +142,34 @@ def create_drive_folder(service, folder_name: str, parent_id: str) -> str:
 
 
 def upload_to_drive(service, file_path, target_folder_id: str) -> str:
-    """Upload 1 file lên Drive, trả về file ID."""
+    ext = Path(file_path).suffix.lower()
+    mime = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+    }.get(ext, "application/octet-stream")
     metadata = {
         "name": os.path.basename(file_path),
         "parents": [target_folder_id],
     }
-    media = MediaFileUpload(str(file_path), mimetype="image/jpeg", resumable=True)
+    media = MediaFileUpload(str(file_path), mimetype=mime, resumable=True)
     result = service.files().create(body=metadata, media_body=media, fields="id").execute()
     return result.get("id")
 
 
 def extract_drive_id_and_type(url: str):
-    """
-    Trích xuất file/folder ID từ link Google Drive.
-    Trả về (id, "folder"|"file") hoặc (None, None).
-    """
     if not url:
         return None, None
 
-    # Link thư mục: drive/folders/ABC123
     match = re.search(r"drive/folders/([a-zA-Z0-9_-]+)", url)
     if match:
         return match.group(1), "folder"
 
-    # Link file: file/d/ABC123
     match = re.search(r"file/d/([a-zA-Z0-9_-]+)", url)
     if match:
         return match.group(1), "file"
 
-    # Link dạng ?id=ABC123
     match = re.search(r"id=([a-zA-Z0-9_-]+)", url)
     if match:
         return match.group(1), "file"
@@ -128,12 +177,7 @@ def extract_drive_id_and_type(url: str):
     return None, None
 
 
-# ╔══════════════════════════════════════════════════════════════╗
-# ║  GOOGLE DRIVE — Tải file/folder bằng API                    ║
-# ╚══════════════════════════════════════════════════════════════╝
-
 def api_get_file_name(service, file_id: str) -> str:
-    """Lấy tên file/folder từ Drive API."""
     try:
         metadata = service.files().get(
             fileId=file_id, fields="name", supportsAllDrives=True
@@ -144,7 +188,6 @@ def api_get_file_name(service, file_id: str) -> str:
 
 
 def api_download_file(service, file_id: str, save_path: Path) -> bool:
-    """Tải 1 file từ Drive bằng API. Trả về True nếu thành công."""
     try:
         request = service.files().get_media(fileId=file_id)
         buffer = io.BytesIO()
@@ -161,7 +204,6 @@ def api_download_file(service, file_id: str, save_path: Path) -> bool:
 
 
 def api_list_folder_images(service, folder_id: str) -> list:
-    """Liệt kê tất cả file ảnh trong folder (đệ quy 1 cấp subfolder)."""
     image_mimes = [
         "image/jpeg", "image/png", "image/webp",
         "image/gif", "image/bmp", "image/tiff",
@@ -172,7 +214,6 @@ def api_list_folder_images(service, folder_id: str) -> list:
     results = []
     page_token = None
 
-    # Lấy ảnh trực tiếp trong folder
     while True:
         try:
             response = service.files().list(
@@ -190,7 +231,6 @@ def api_list_folder_images(service, folder_id: str) -> list:
         except Exception:
             break
 
-    # Quét subfolder 1 cấp
     subfolder_query = (
         f"'{folder_id}' in parents "
         f"and mimeType='application/vnd.google-apps.folder' "
@@ -214,8 +254,7 @@ def api_list_folder_images(service, folder_id: str) -> list:
 
 
 def api_download_folder_images(service, folder_id: str, save_dir: Path,
-                                max_files: int = None) -> int:
-    """Tải tất cả ảnh trong folder về save_dir. Trả về số file tải OK."""
+                               max_files: int = None) -> int:
     images = api_list_folder_images(service, folder_id)
     if not images:
         return 0
@@ -224,7 +263,6 @@ def api_download_folder_images(service, folder_id: str, save_dir: Path,
 
     count = 0
     for img_meta in images:
-        # Làm sạch tên file
         file_name = re.sub(r'[\\/*?:"<>|]', "", img_meta["name"]).strip()
         if not file_name:
             file_name = f"{img_meta['id']}.jpg"
@@ -236,11 +274,9 @@ def api_download_folder_images(service, folder_id: str, save_dir: Path,
 
 
 def get_drive_name(file_id: str, kind: str, service=None) -> str:
-    """Lấy tên file/folder. Ưu tiên API, fallback scrape HTML."""
     if service:
         return api_get_file_name(service, file_id)
 
-    # Fallback: Scrape tên từ trang web Drive
     import requests
     try:
         if kind == "file":
@@ -260,17 +296,14 @@ def get_drive_name(file_id: str, kind: str, service=None) -> str:
 
 
 def download_direct_file(file_id: str, save_folder: Path,
-                          drive_name: str, service=None) -> Path:
-    """Tải 1 file đơn. Ưu tiên API → fallback gdown."""
+                         drive_name: str, service=None) -> Path:
     save_path = save_folder / f"{drive_name}.jpg"
 
-    # Thử API trước
     if service:
         success = api_download_file(service, file_id, save_path)
         if success and save_path.exists() and save_path.stat().st_size > 0:
             return save_path
 
-    # Fallback: gdown
     try:
         import gdown
         download_url = f"https://drive.google.com/uc?id={file_id}"
@@ -282,11 +315,146 @@ def download_direct_file(file_id: str, save_folder: Path,
 
 
 # ╔══════════════════════════════════════════════════════════════╗
-# ║  RESIZE ẢNH                                                  ║
+# ║  TIỆN ÍCH CHUNG                                              ║
+# ╚══════════════════════════════════════════════════════════════╝
+
+def clean_name(name: str) -> str:
+    name = re.sub(r'[\\/*?:"<>|]', "", str(name or ""))
+    name = re.sub(r"\s+", "_", name).strip("_")
+    return name or "Untitled"
+
+
+def ignore_system_files(path: Path) -> bool:
+    name = path.name
+    return (
+        name.startswith("._")
+        or name == ".DS_Store"
+        or name.startswith("__MACOSX")
+        or name.startswith("__tmp_")
+    )
+
+
+def compute_file_hash(text: str) -> str:
+    return hashlib.md5(text.encode("utf-8", errors="ignore")).hexdigest()[:12]
+
+
+def create_batch_workspace(prefix: str = "web") -> dict:
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    batch_id = f"{prefix}_{stamp}_{int(time.time() * 1000) % 100000}"
+    root = BATCH_ROOT / batch_id
+    raw_dir = root / "RAW"
+    final_dir = root / "FINAL"
+    preview_dir = root / "PREVIEW"
+    meta_dir = root / "META"
+    for p in [root, raw_dir, final_dir, preview_dir, meta_dir]:
+        p.mkdir(parents=True, exist_ok=True)
+    return {
+        "batch_id": batch_id,
+        "root": str(root),
+        "raw_dir": str(raw_dir),
+        "final_dir": str(final_dir),
+        "preview_dir": str(preview_dir),
+        "meta_dir": str(meta_dir),
+    }
+
+
+def save_json(data, path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def open_zip_for_download(zip_path: str):
+    if not zip_path:
+        return None
+    path = Path(zip_path)
+    if not path.exists() or path.stat().st_size <= 0:
+        return None
+    return open(path, "rb")
+
+
+def readable_file_size(num_bytes: int) -> str:
+    value = float(num_bytes)
+    units = ["B", "KB", "MB", "GB", "TB"]
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(value)} {unit}"
+            return f"{value:.1f} {unit}"
+        value /= 1024.0
+    return f"{num_bytes} B"
+
+
+def get_size_label(width, height, mode: str) -> str:
+    if mode == "crop_1000":
+        return "1000x1000_Crop"
+    if width is None or height is None:
+        return "original"
+    return f"{width}x{height}"
+
+
+def safe_image_meta(image_path: Path) -> dict:
+    try:
+        with Image.open(image_path) as img:
+            return {
+                "width": int(img.width),
+                "height": int(img.height),
+                "mode": img.mode,
+                "format": img.format or image_path.suffix.lower().replace(".", "").upper(),
+                "size_bytes": int(image_path.stat().st_size) if image_path.exists() else 0,
+            }
+    except Exception:
+        return {
+            "width": 0,
+            "height": 0,
+            "mode": "?",
+            "format": image_path.suffix.lower().replace(".", "").upper(),
+            "size_bytes": int(image_path.stat().st_size) if image_path.exists() else 0,
+        }
+
+
+def build_preview_image(src_path: Path, preview_dir: Path, max_size: int = 520) -> str:
+    preview_dir.mkdir(parents=True, exist_ok=True)
+    preview_path = preview_dir / f"preview_{compute_file_hash(str(src_path))}.jpg"
+    try:
+        with Image.open(src_path) as img:
+            img = ImageOps.exif_transpose(img)
+            thumb = _convert_to_rgb(img)
+            thumb.thumbnail((max_size, max_size), _get_resample_filter())
+            thumb.save(preview_path, "JPEG", quality=88, optimize=True)
+        return str(preview_path)
+    except Exception:
+        return str(src_path)
+
+
+def check_pause_cancel_state() -> bool:
+    while st.session_state.get("download_status") == "paused":
+        time.sleep(0.7)
+    return st.session_state.get("download_status") != "cancelled"
+
+
+def render_control_buttons():
+    st.markdown('<div class="control-box">', unsafe_allow_html=True)
+    col_pause, col_resume, col_cancel = st.columns(3)
+    with col_pause:
+        if st.button("⏸️ Tạm dừng", use_container_width=True, key=f"pause_{time.time_ns()}"):
+            st.session_state.download_status = "paused"
+            st.rerun()
+    with col_resume:
+        if st.button("▶️ Tiếp tục", use_container_width=True, key=f"resume_{time.time_ns()}"):
+            st.session_state.download_status = "running"
+            st.rerun()
+    with col_cancel:
+        if st.button("⏹️ Hủy bỏ", type="primary", use_container_width=True, key=f"cancel_{time.time_ns()}"):
+            st.session_state.download_status = "cancelled"
+            st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  RESIZE ENGINE                                               ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 def _get_resample_filter():
-    """Lấy filter LANCZOS tương thích cả Pillow cũ và mới."""
     try:
         return Image.Resampling.LANCZOS
     except AttributeError:
@@ -294,181 +462,232 @@ def _get_resample_filter():
 
 
 def _convert_to_rgb(img: Image.Image) -> Image.Image:
-    """Chuyển ảnh có transparency về RGB với nền trắng."""
     if img.mode in ("RGBA", "LA", "P"):
         img = img.convert("RGBA")
         background = Image.new("RGBA", img.size, (255, 255, 255, 255))
         background.paste(img, (0, 0), img)
         return background.convert("RGB")
+    if img.mode == "CMYK":
+        return img.convert("RGB")
     return img.convert("RGB")
 
 
-def resize_image(image_path: Path, output_path: Path,
-                  width: int = None, height: int = None,
-                  scale_pct: int = 100, mode: str = "letterbox",
-                  quality: int = 95, export_format: str = "JPEG (.jpg)"):
-    """
-    Resize ảnh với nhiều chế độ:
-    - letterbox: Giữ tỉ lệ, fill nền trắng, hỗ trợ scale %
-    - crop_1000: Crop 1:1 center → 1000×1000 (kiểu Photoshop)
+def _calculate_fit_dimensions(src_w: int, src_h: int, dst_w: int, dst_h: int) -> tuple[int, int]:
+    img_ratio = src_w / max(src_h, 1)
+    target_ratio = dst_w / max(dst_h, 1)
+    if img_ratio > target_ratio:
+        fit_width = dst_w
+        fit_height = max(int(dst_w / max(img_ratio, 1e-9)), 1)
+    else:
+        fit_width = max(int(dst_h * img_ratio), 1)
+        fit_height = dst_h
+    return fit_width, fit_height
 
-    Args:
-        image_path: Đường dẫn ảnh nguồn
-        output_path: Đường dẫn file output
-        width, height: Kích thước target (None = giữ gốc)
-        scale_pct: Tỉ lệ phóng to/thu nhỏ (100 = vừa khung)
-        mode: "letterbox" hoặc "crop_1000"
-        quality: Chất lượng JPEG/WebP (1-100)
-        export_format: Key trong EXPORT_FORMATS
-    """
-    # Mode crop đặc biệt
-    if mode == "crop_1000":
-        crop_photoshop_square(image_path, output_path,
-                               quality=quality, export_format=export_format)
-        return
 
-    # Giữ gốc — chỉ copy file
-    if not width or not height:
-        shutil.copy2(image_path, output_path)
-        return
+def _calc_centered_crop_position(extra_space: int, offset_pct: int) -> int:
+    if extra_space <= 0:
+        return 0
+    center = extra_space / 2.0
+    shifted = center + (offset_pct / 100.0) * center
+    shifted = max(0, min(extra_space, shifted))
+    return int(round(shifted))
 
-    try:
-        fmt_info = EXPORT_FORMATS.get(export_format, EXPORT_FORMATS["JPEG (.jpg)"])
-        # Sửa extension output cho đúng format
-        output_path = output_path.with_suffix(fmt_info["ext"])
 
-        with Image.open(image_path) as img:
-            img = _convert_to_rgb(img)
+def _calc_centered_paste_position(free_space: int, offset_pct: int) -> int:
+    if free_space <= 0:
+        return 0
+    center = free_space / 2.0
+    shifted = center + (offset_pct / 100.0) * center
+    shifted = max(0, min(free_space, shifted))
+    return int(round(shifted))
 
-            # Tính kích thước "vừa khung" (fit) giữ tỉ lệ
-            img_ratio = img.width / img.height
-            target_ratio = width / height
 
-            if img_ratio > target_ratio:
-                # Ảnh rộng hơn target → fit theo width
-                fit_width = width
-                fit_height = int(width / img_ratio)
-            else:
-                # Ảnh cao hơn target → fit theo height
-                fit_width = int(height * img_ratio)
-                fit_height = height
+def _prepare_pillow_image(image_path: Path, target_hint: tuple[int, int] | None = None,
+                          huge_image_mode: bool = True) -> Image.Image:
+    img = Image.open(image_path)
+    img = ImageOps.exif_transpose(img)
 
-            # Áp dụng scale %
-            factor = scale_pct / 100.0
-            new_width = max(int(fit_width * factor), 1)
-            new_height = max(int(fit_height * factor), 1)
+    if huge_image_mode and target_hint and target_hint[0] and target_hint[1]:
+        try:
+            draft_w = max(int(target_hint[0] * 2.8), 1)
+            draft_h = max(int(target_hint[1] * 2.8), 1)
+            img.draft("RGB", (draft_w, draft_h))
+        except Exception:
+            pass
 
-            resample = _get_resample_filter()
-            resized = img.resize((new_width, new_height), resample)
+    img = _convert_to_rgb(img)
 
-            # Tạo canvas trắng
-            canvas = Image.new("RGB", (width, height), (255, 255, 255))
+    if huge_image_mode and target_hint and target_hint[0] and target_hint[1]:
+        source_long = max(img.width, img.height)
+        desired_long = max(target_hint[0], target_hint[1])
+        if source_long > desired_long * 4:
+            pre_limit = int(desired_long * 2.4)
+            try:
+                reduced = img.copy()
+                reduced.thumbnail((pre_limit, pre_limit), _get_resample_filter())
+                img.close()
+                img = reduced
+            except Exception:
+                pass
 
-            if new_width > width or new_height > height:
-                # Scale > 100% → ảnh lớn hơn canvas → crop giữa
-                crop_left = max(0, (new_width - width) // 2)
-                crop_top = max(0, (new_height - height) // 2)
-                crop_right = crop_left + min(new_width, width)
-                crop_bottom = crop_top + min(new_height, height)
-                cropped = resized.crop((crop_left, crop_top, crop_right, crop_bottom))
-                paste_x = max(0, (width - cropped.width) // 2)
-                paste_y = max(0, (height - cropped.height) // 2)
-                canvas.paste(cropped, (paste_x, paste_y))
-            else:
-                # Ảnh nhỏ hơn canvas → paste giữa
-                paste_x = (width - new_width) // 2
-                paste_y = (height - new_height) // 2
-                canvas.paste(resized, (paste_x, paste_y))
+    return img
 
-            # Lưu theo format
-            pil_format = fmt_info["pil_format"]
-            if pil_format == "JPEG":
-                canvas.save(output_path, "JPEG", quality=quality, optimize=True)
-            elif pil_format == "PNG":
-                canvas.save(output_path, "PNG", optimize=True)
-            elif pil_format == "WEBP":
-                canvas.save(output_path, "WEBP", quality=quality)
 
-    except Exception as exc:
-        print(f"Resize error [{image_path.name}]: {exc}")
+def _save_output_image(final_image: Image.Image, output_path: Path,
+                       quality: int = 95, export_format: str = "JPEG (.jpg)"):
+    fmt_info = EXPORT_FORMATS.get(export_format, EXPORT_FORMATS["JPEG (.jpg)"])
+    output_path = output_path.with_suffix(fmt_info["ext"])
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    pil_format = fmt_info["pil_format"]
+
+    if pil_format == "JPEG":
+        final_image.save(
+            output_path,
+            "JPEG",
+            quality=int(quality),
+            optimize=True,
+            progressive=True,
+            subsampling="4:2:0",
+        )
+    elif pil_format == "PNG":
+        final_image.save(output_path, "PNG", optimize=True)
+    elif pil_format == "WEBP":
+        final_image.save(output_path, "WEBP", quality=int(quality), method=6)
+    else:
+        final_image.save(output_path)
 
 
 def crop_photoshop_square(image_path: Path, output_path: Path,
-                           target: int = 1000, quality: int = 95,
-                           export_format: str = "JPEG (.jpg)"):
-    """
-    Crop 1:1 center giống Photoshop → resize về target×target.
-    - Ảnh lớn: crop center 1:1 → resize down
-    - Ảnh nhỏ: giữ nguyên, đặt vào nền trắng
-    """
+                          target: int = 1000, quality: int = 95,
+                          export_format: str = "JPEG (.jpg)"):
     try:
-        fmt_info = EXPORT_FORMATS.get(export_format, EXPORT_FORMATS["JPEG (.jpg)"])
-        output_path = output_path.with_suffix(fmt_info["ext"])
-
-        with Image.open(image_path) as img:
-            img = _convert_to_rgb(img)
+        with _prepare_pillow_image(image_path, (target, target), True) as img:
             w, h = img.size
-
             if w > target or h > target:
-                # Crop center 1:1
                 crop_size = min(w, h)
                 left = (w - crop_size) // 2
                 top = (h - crop_size) // 2
                 cropped = img.crop((left, top, left + crop_size, top + crop_size))
-
-                # Resize down nếu cần
                 if crop_size > target:
-                    cropped = cropped.resize(
-                        (target, target), _get_resample_filter()
-                    )
+                    cropped = cropped.resize((target, target), _get_resample_filter())
                 final_image = cropped
             else:
-                # Ảnh nhỏ → đặt lên nền trắng, KHÔNG upscale
                 final_image = Image.new("RGB", (target, target), (255, 255, 255))
                 offset_x = (target - w) // 2
                 offset_y = (target - h) // 2
                 final_image.paste(img, (offset_x, offset_y))
 
-            pil_format = fmt_info["pil_format"]
-            if pil_format == "JPEG":
-                final_image.save(output_path, "JPEG", quality=quality, optimize=True)
-            elif pil_format == "PNG":
-                final_image.save(output_path, "PNG", optimize=True)
-            elif pil_format == "WEBP":
-                final_image.save(output_path, "WEBP", quality=quality)
-
+            _save_output_image(final_image, output_path, quality, export_format)
     except Exception as exc:
         print(f"Crop error [{image_path.name}]: {exc}")
 
 
+def resize_image(image_path: Path, output_path: Path,
+                 width: int = None, height: int = None,
+                 scale_pct: int = 100, mode: str = "letterbox",
+                 quality: int = 95, export_format: str = "JPEG (.jpg)",
+                 offset_x: int = 0, offset_y: int = 0,
+                 huge_image_mode: bool = True):
+    """
+    Resize ảnh với nhiều chế độ, nâng cấp thêm:
+    - scale riêng từng ảnh
+    - offset X/Y để chỉnh vị trí khi zoom > 100%
+    - tối ưu đọc ảnh lớn
+    """
+    if mode == "crop_1000":
+        crop_photoshop_square(
+            image_path,
+            output_path,
+            target=1000,
+            quality=quality,
+            export_format=export_format,
+        )
+        return
+
+    if not width or not height:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(image_path, output_path)
+        return
+
+    try:
+        with _prepare_pillow_image(
+            image_path,
+            target_hint=(max(int(width * max(scale_pct, 100) / 100), width),
+                         max(int(height * max(scale_pct, 100) / 100), height)),
+            huge_image_mode=huge_image_mode,
+        ) as img:
+            fit_width, fit_height = _calculate_fit_dimensions(img.width, img.height, width, height)
+            factor = max(scale_pct, 1) / 100.0
+            new_width = max(int(fit_width * factor), 1)
+            new_height = max(int(fit_height * factor), 1)
+
+            resized = img.resize((new_width, new_height), _get_resample_filter())
+            canvas = Image.new("RGB", (width, height), (255, 255, 255))
+
+            if new_width > width or new_height > height:
+                extra_x = max(new_width - width, 0)
+                extra_y = max(new_height - height, 0)
+                crop_left = _calc_centered_crop_position(extra_x, int(offset_x))
+                crop_top = _calc_centered_crop_position(extra_y, int(offset_y))
+                crop_box = (
+                    crop_left,
+                    crop_top,
+                    crop_left + min(width, new_width),
+                    crop_top + min(height, new_height),
+                )
+                cropped = resized.crop(crop_box)
+                paste_x = _calc_centered_paste_position(max(width - cropped.width, 0), int(offset_x))
+                paste_y = _calc_centered_paste_position(max(height - cropped.height, 0), int(offset_y))
+                canvas.paste(cropped, (paste_x, paste_y))
+            else:
+                paste_x = _calc_centered_paste_position(width - new_width, int(offset_x))
+                paste_y = _calc_centered_paste_position(height - new_height, int(offset_y))
+                canvas.paste(resized, (paste_x, paste_y))
+
+            _save_output_image(canvas, output_path, quality, export_format)
+    except (UnidentifiedImageError, OSError) as exc:
+        print(f"Resize error [{image_path.name}]: {exc}")
+    except Exception as exc:
+        print(f"Resize error [{image_path.name}]: {exc}")
+
+
 def resize_to_multi_sizes(src_path: Path, final_dir: Path, folder_name: str,
-                           file_stem: str, sizes: list,
-                           scale_pct: int = 100, quality: int = 95,
-                           export_format: str = "JPEG (.jpg)"):
+                          file_stem: str, sizes: list,
+                          scale_pct: int = 100, quality: int = 95,
+                          export_format: str = "JPEG (.jpg)",
+                          per_image_settings: dict | None = None,
+                          huge_image_mode: bool = True):
     """
     Resize 1 ảnh nguồn sang nhiều kích thước cùng lúc.
-    Nếu chọn >1 size → tạo subfolder theo tên size.
-    Nếu chọn 1 size → output phẳng (không subfolder size).
+    Hỗ trợ override riêng từng ảnh qua per_image_settings:
+        {"scale_pct": 108, "offset_x": -15, "offset_y": 10}
     """
     fmt_info = EXPORT_FORMATS.get(export_format, EXPORT_FORMATS["JPEG (.jpg)"])
     is_multi = len(sizes) > 1
+    item_scale = int((per_image_settings or {}).get("scale_pct", scale_pct))
+    item_offset_x = int((per_image_settings or {}).get("offset_x", 0))
+    item_offset_y = int((per_image_settings or {}).get("offset_y", 0))
 
     for target_w, target_h, resize_mode in sizes:
         size_label = get_size_label(target_w, target_h, resize_mode)
-
-        # Tạo đường dẫn output
         if is_multi:
             output_dir = final_dir / size_label / folder_name
         else:
             output_dir = final_dir / folder_name
         output_dir.mkdir(parents=True, exist_ok=True)
-
         output_file = output_dir / f"{file_stem}{fmt_info['ext']}"
         resize_image(
-            src_path, output_file,
-            width=target_w, height=target_h,
-            scale_pct=scale_pct, mode=resize_mode,
-            quality=quality, export_format=export_format,
+            src_path,
+            output_file,
+            width=target_w,
+            height=target_h,
+            scale_pct=item_scale,
+            mode=resize_mode,
+            quality=quality,
+            export_format=export_format,
+            offset_x=item_offset_x,
+            offset_y=item_offset_y,
+            huge_image_mode=huge_image_mode,
         )
 
 
@@ -477,41 +696,20 @@ def resize_to_multi_sizes(src_path: Path, final_dir: Path, folder_name: str,
 # ╚══════════════════════════════════════════════════════════════╝
 
 def apply_name_template(template: str, name: str = "", color: str = "",
-                         index: int = 1, original: str = "") -> str:
-    """
-    Thay thế biến trong template đặt tên:
-        {name}     → tên sản phẩm / folder
-        {color}    → tên màu sắc
-        {nn}       → số thứ tự 2 chữ số (01, 02, 03...)
-        {nnn}      → số thứ tự 3 chữ số (001, 002...)
-        {original} → tên file gốc (không extension)
-
-    Returns:
-        Tên file đã format (không có extension)
-    """
+                        index: int = 1, original: str = "") -> str:
     result = template
     result = result.replace("{name}", name)
     result = result.replace("{color}", color)
     result = result.replace("{nn}", f"{index:02d}")
     result = result.replace("{nnn}", f"{index:03d}")
     result = result.replace("{original}", original)
-
-    # Dọn ký tự không hợp lệ cho tên file
     result = re.sub(r'[\\/*?:"<>|]', "", result)
     result = re.sub(r"_+", "_", result).strip("_")
-
     return result or f"image_{index:02d}"
 
 
 def batch_rename_with_template(final_dir: Path, template: str = "{name}_{nn}") -> int:
-    """
-    Đổi tên tất cả ảnh trong final_dir theo template.
-    Tự động nhận diện name/color từ cấu trúc thư mục.
-    Trả về số file đã đổi tên.
-    """
     renamed_count = 0
-
-    # Tìm tất cả thư mục lá (chứa ảnh trực tiếp)
     leaf_directories = set()
     for file_path in final_dir.rglob("*"):
         if file_path.is_file() and file_path.suffix.lower() in IMAGE_EXTENSIONS:
@@ -520,8 +718,6 @@ def batch_rename_with_template(final_dir: Path, template: str = "{name}_{nn}") -
     for folder in sorted(leaf_directories):
         relative_path = folder.relative_to(final_dir)
         path_parts = [part for part in relative_path.parts if part]
-
-        # Bỏ qua size label khi tạo name (vd: "1020x680", "1000x1000_Crop")
         name_parts = [
             part for part in path_parts
             if not re.match(r"^\d+x\d+", part)
@@ -529,23 +725,20 @@ def batch_rename_with_template(final_dir: Path, template: str = "{name}_{nn}") -
             and "Crop" not in part
         ]
 
-        # Tách product name và color
         product_name = name_parts[0] if len(name_parts) >= 1 else "image"
         color_name = name_parts[1] if len(name_parts) >= 2 else ""
         product_name = re.sub(r"\s+", "_", product_name).strip("_")
+        color_name = re.sub(r"\s+", "_", color_name).strip("_")
 
-        # Lấy danh sách ảnh, sắp xếp theo tên
         images = sorted([
             f for f in folder.iterdir()
             if f.is_file()
             and f.suffix.lower() in IMAGE_EXTENSIONS
             and not f.name.startswith("__tmp_")
         ])
-
         if not images:
             continue
 
-        # Phase 1: Rename → tên tạm (tránh xung đột)
         temp_mapping = []
         for idx, img_path in enumerate(images, start=1):
             original_stem = img_path.stem
@@ -563,7 +756,6 @@ def batch_rename_with_template(final_dir: Path, template: str = "{name}_{nn}") -
             final_name = f"{new_name}{img_path.suffix}"
             temp_mapping.append((temp_path, final_name))
 
-        # Phase 2: Tên tạm → tên cuối cùng
         for temp_path, final_name in temp_mapping:
             final_path = folder / final_name
             temp_path.rename(final_path)
@@ -573,138 +765,90 @@ def batch_rename_with_template(final_dir: Path, template: str = "{name}_{nn}") -
 
 
 # ╔══════════════════════════════════════════════════════════════╗
-# ║  TIỆN ÍCH CHUNG                                             ║
+# ║  ZIP / PREVIEW / SUMMARY                                     ║
 # ╚══════════════════════════════════════════════════════════════╝
 
-def clean_name(name: str) -> str:
-    """Làm sạch chuỗi thành tên file/folder hợp lệ."""
-    name = re.sub(r'[\\/*?:"<>|]', "", name)
-    name = re.sub(r"\s+", "_", name).strip("_")
-    return name or "Untitled"
+def make_zip(source_dir: Path, zip_path: Path, compresslevel: int = 6):
+    import zipfile
+
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(
+        zip_path,
+        "w",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=max(0, min(9, int(compresslevel))),
+    ) as zf:
+        for file_path in source_dir.rglob("*"):
+            if file_path.is_file() and file_path.stat().st_size > 0:
+                zf.write(file_path, file_path.relative_to(source_dir))
 
 
-def ignore_system_files(path: Path) -> bool:
-    """Kiểm tra file hệ thống cần bỏ qua."""
-    name = path.name
-    return (
-        name.startswith("._")
-        or name == ".DS_Store"
-        or name.startswith("__MACOSX")
-        or name.startswith("__tmp_")
-    )
-
-
-def get_size_label(width, height, mode: str) -> str:
-    """Tạo label dễ đọc cho 1 kích thước."""
-    if mode == "crop_1000":
-        return "1000x1000_Crop"
-    if width is None:
-        return "original"
-    return f"{width}x{height}"
-
-
-def check_pause_cancel_state() -> bool:
-    """Kiểm tra trạng thái pause/cancel. Block khi paused, False khi cancelled."""
-    while st.session_state.get("download_status") == "paused":
-        time.sleep(1)
-    return st.session_state.get("download_status") != "cancelled"
-
-
-def render_control_buttons():
-    """Hiện 3 nút điều khiển: Tạm dừng / Tiếp tục / Hủy."""
-    st.markdown('<div class="control-box">', unsafe_allow_html=True)
-    col_pause, col_resume, col_cancel = st.columns(3)
-    with col_pause:
-        if st.button("⏸️ Tạm dừng", use_container_width=True):
-            st.session_state.download_status = "paused"
-            st.rerun()
-    with col_resume:
-        if st.button("▶️ Tiếp tục", use_container_width=True):
-            st.session_state.download_status = "running"
-            st.rerun()
-    with col_cancel:
-        if st.button("⏹️ Hủy bỏ", type="primary", use_container_width=True):
-            st.session_state.download_status = "cancelled"
-            st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-# ╔══════════════════════════════════════════════════════════════╗
-# ║  PREVIEW THUMBNAIL                                           ║
-# ╚══════════════════════════════════════════════════════════════╝
-
-def show_preview(final_dir: Path, max_images: int = 6):
-    """Hiện lưới thumbnail ảnh đã resize (tối đa max_images ảnh)."""
+def show_preview(final_dir: Path, max_images: int = 8):
     all_images = sorted([
         f for f in final_dir.rglob("*")
         if f.is_file()
         and f.suffix.lower() in IMAGE_EXTENSIONS
         and f.stat().st_size > 0
     ])
-
     if not all_images:
         return
 
     preview_images = all_images[:max_images]
     total = len(all_images)
-
     st.markdown(
         f"<div class='sec-title'>👁️ XEM TRƯỚC ({len(preview_images)}/{total} ảnh)</div>",
         unsafe_allow_html=True,
     )
 
-    num_cols = min(len(preview_images), 3)
-    columns = st.columns(num_cols)
-
+    columns = st.columns(min(4, len(preview_images)))
     for idx, img_path in enumerate(preview_images):
-        with columns[idx % num_cols]:
+        with columns[idx % len(columns)]:
             try:
-                img = Image.open(img_path)
-                thumbnail = img.copy()
-                thumbnail.thumbnail((360, 360), _get_resample_filter())
-                st.image(thumbnail, caption=img_path.name, use_container_width=True)
-                st.caption(f"📐 {img.width}×{img.height}")
-                img.close()
+                with Image.open(img_path) as img:
+                    thumb = img.copy()
+                    thumb.thumbnail((360, 360), _get_resample_filter())
+                    st.image(thumb, caption=img_path.name, use_container_width=True)
+                    st.caption(f"📐 {img.width}×{img.height} · 💾 {readable_file_size(img_path.stat().st_size)}")
             except Exception:
                 st.caption(f"⚠️ {img_path.name}")
 
     if total > max_images:
-        st.caption(f"… và {total - max_images} ảnh khác trong ZIP")
+        st.caption(f"… và {total - max_images} ảnh khác trong batch")
 
-
-# ╔══════════════════════════════════════════════════════════════╗
-# ║  PROCESSING SUMMARY                                          ║
-# ╚══════════════════════════════════════════════════════════════╝
 
 def show_processing_summary(final_dir: Path, sizes: list, duration: float):
-    """Hiện bảng tổng kết sau khi xử lý xong."""
     all_files = [
         f for f in final_dir.rglob("*")
         if f.is_file() and f.stat().st_size > 0
     ]
-    total_size_kb = sum(f.stat().st_size for f in all_files) // 1024
-
-    # Đếm ảnh theo size
-    size_counts = {}
-    for f in all_files:
-        rel = f.relative_to(final_dir)
-        first_part = rel.parts[0] if len(rel.parts) > 1 else "output"
-        size_counts[first_part] = size_counts.get(first_part, 0) + 1
-
-    # Hiển thị
+    total_size = sum(f.stat().st_size for f in all_files)
     size_labels = " + ".join([get_size_label(w, h, m) for w, h, m in sizes])
     st.markdown(
-        f"<div style='background:linear-gradient(135deg,#f0fdf4,#dcfce7);"
-        f"border:1px solid #86efac;border-radius:12px;padding:14px 18px;margin:10px 0;"
-        f"font-size:.84rem'>"
-        f"<b style='color:#166534'>📊 Tổng kết</b><br>"
-        f"📁 <b>{len(all_files)}</b> ảnh · "
-        f"💾 <b>{total_size_kb:,} KB</b> · "
-        f"⏱ <b>{duration:.1f}s</b> · "
-        f"📐 {size_labels}"
+        f"<div style='background:linear-gradient(135deg,#eefcf6,#dcfce7);"
+        f"border:1px solid #86efac;border-radius:16px;padding:16px 18px;margin:10px 0;"
+        f"font-size:.88rem;line-height:1.8'>"
+        f"<b style='color:#166534'>📊 Tổng kết batch</b><br>"
+        f"📁 <b>{len(all_files)}</b> ảnh output &nbsp;·&nbsp; "
+        f"💾 <b>{readable_file_size(total_size)}</b> &nbsp;·&nbsp; "
+        f"⏱ <b>{duration:.1f}s</b><br>"
+        f"📐 <b>{size_labels}</b>"
         f"</div>",
         unsafe_allow_html=True,
     )
+
+
+def render_batch_kpis(meta: dict):
+    if not meta:
+        return
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Ảnh nguồn", meta.get("source_count", 0))
+    with col2:
+        st.metric("Ảnh output", meta.get("output_count", 0))
+    with col3:
+        st.metric("Dung lượng ZIP", meta.get("zip_size", "0 B"))
+    with col4:
+        st.metric("Batch", meta.get("batch_id", "-"))
 
 
 # ╔══════════════════════════════════════════════════════════════╗
@@ -712,35 +856,16 @@ def show_processing_summary(final_dir: Path, sizes: list, duration: float):
 # ╚══════════════════════════════════════════════════════════════╝
 
 def _init_history():
-    """Khởi tạo session state cho history và stats."""
-    if "processing_history" not in st.session_state:
-        st.session_state.processing_history = []
-    if "session_stats" not in st.session_state:
-        st.session_state.session_stats = {
-            "total_images": 0,
-            "total_batches": 0,
-            "total_time": 0.0,
-        }
+    init_app_state()
 
 
 def add_to_history(source: str, detail: str, count: int,
-                    size_label: str, duration_sec: float):
-    """
-    Thêm 1 bản ghi vào lịch sử xử lý.
-
-    Args:
-        source: "Drive" | "Local" | "Web"
-        detail: Mô tả ngắn (tên sản phẩm, file...)
-        count: Số ảnh đã xử lý
-        size_label: Kích thước đã dùng
-        duration_sec: Thời gian xử lý (giây)
-    """
+                   size_label: str, duration_sec: float):
     _init_history()
-
     entry = {
         "time": datetime.now().strftime("%d/%m %H:%M"),
         "source": source,
-        "detail": detail[:50],
+        "detail": detail[:70],
         "count": count,
         "size": size_label,
         "duration": f"{duration_sec:.1f}s",
@@ -748,7 +873,6 @@ def add_to_history(source: str, detail: str, count: int,
     st.session_state.processing_history.insert(0, entry)
     st.session_state.processing_history = st.session_state.processing_history[:30]
 
-    # Cập nhật stats tích lũy
     stats = st.session_state.session_stats
     stats["total_images"] += count
     stats["total_batches"] += 1
@@ -756,23 +880,19 @@ def add_to_history(source: str, detail: str, count: int,
 
 
 def render_history_sidebar():
-    """Hiển thị lịch sử xử lý trong sidebar."""
     _init_history()
     history = st.session_state.processing_history
-
     if not history:
-        st.caption("Chưa có lịch sử.")
+        st.caption("Chưa có lịch sử xử lý.")
         return
 
     for entry in history[:6]:
-        icon = {"Drive": "🌐", "Local": "💻", "Web": "🛒"}.get(entry["source"], "📦")
+        icon = {"Drive": "🌐", "Local": "💻", "Web": "🛒", "Adjust": "🎚️"}.get(entry["source"], "📦")
         st.markdown(
-            f"<div style='font-size:.74rem;padding:4px 0;"
-            f"border-bottom:1px solid rgba(99,130,190,0.1)'>"
+            f"<div style='font-size:.74rem;padding:6px 0;border-bottom:1px solid rgba(99,130,190,0.1)'>"
             f"{icon} <b style='color:#e2e8f0'>{entry['detail']}</b><br>"
             f"<span style='color:#64748b;font-size:.7rem'>"
-            f"{entry['time']} · {entry['count']} ảnh · "
-            f"{entry['size']} · ⏱{entry['duration']}"
+            f"{entry['time']} · {entry['count']} ảnh · {entry['size']} · ⏱ {entry['duration']}"
             f"</span></div>",
             unsafe_allow_html=True,
         )
@@ -783,34 +903,22 @@ def render_history_sidebar():
 
 
 def render_session_stats():
-    """Hiện 3 stat cards tổng hợp phiên làm việc."""
     _init_history()
     stats = st.session_state.session_stats
-
     if stats["total_images"] == 0:
         return
 
-    total_images = stats["total_images"]
-    total_batches = stats["total_batches"]
-    total_time = stats["total_time"]
-
     st.markdown(
         f"<div style='display:flex;gap:6px;margin:4px 0 8px'>"
-        # Card: Tổng ảnh
-        f"<div style='flex:1;background:rgba(99,102,241,0.15);border-radius:8px;"
-        f"padding:6px 8px;text-align:center'>"
-        f"<div style='font-size:1.1rem;font-weight:800;color:#c7d2fe'>{total_images}</div>"
-        f"<div style='font-size:.65rem;color:#94a3b8'>Ảnh</div></div>"
-        # Card: Số lần chạy
-        f"<div style='flex:1;background:rgba(16,185,129,0.15);border-radius:8px;"
-        f"padding:6px 8px;text-align:center'>"
-        f"<div style='font-size:1.1rem;font-weight:800;color:#a7f3d0'>{total_batches}</div>"
-        f"<div style='font-size:.65rem;color:#94a3b8'>Lần</div></div>"
-        # Card: Tổng thời gian
-        f"<div style='flex:1;background:rgba(251,191,36,0.15);border-radius:8px;"
-        f"padding:6px 8px;text-align:center'>"
-        f"<div style='font-size:1.1rem;font-weight:800;color:#fde68a'>{total_time:.0f}s</div>"
-        f"<div style='font-size:.65rem;color:#94a3b8'>Tổng</div></div>"
+        f"<div style='flex:1;background:rgba(99,102,241,0.15);border-radius:10px;padding:8px;text-align:center'>"
+        f"<div style='font-size:1.15rem;font-weight:800;color:#c7d2fe'>{stats['total_images']}</div>"
+        f"<div style='font-size:.66rem;color:#94a3b8'>Ảnh</div></div>"
+        f"<div style='flex:1;background:rgba(16,185,129,0.15);border-radius:10px;padding:8px;text-align:center'>"
+        f"<div style='font-size:1.15rem;font-weight:800;color:#a7f3d0'>{stats['total_batches']}</div>"
+        f"<div style='font-size:.66rem;color:#94a3b8'>Batch</div></div>"
+        f"<div style='flex:1;background:rgba(251,191,36,0.15);border-radius:10px;padding:8px;text-align:center'>"
+        f"<div style='font-size:1.15rem;font-weight:800;color:#fde68a'>{stats['total_time']:.0f}s</div>"
+        f"<div style='font-size:.66rem;color:#94a3b8'>Thời gian</div></div>"
         f"</div>",
         unsafe_allow_html=True,
     )
