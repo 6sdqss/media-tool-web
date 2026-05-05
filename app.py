@@ -537,7 +537,7 @@ for tab, key in zip(tabs, tab_keys):
 
         elif key == "guide":
             st.markdown(
-                """
+                '''
                 <div class="guide-box">
                     <div style='font-size:1rem;font-weight:900;color:#1e1b4b;margin-bottom:8px'>
                         📌 Media Tool Pro VIP Pro — vận hành chuẩn
@@ -549,15 +549,15 @@ for tab, key in zip(tabs, tab_keys):
                     <b>5.</b> Tab Drive / Local: xử lý ảnh từ Google Drive hoặc file ZIP. <br>
                     <b>6.</b> Mọi thay đổi user/quyền đều tự sync GitHub → không lo mất data trên Streamlit Cloud.
                 </div>
-                """,
+                ''',
                 unsafe_allow_html=True,
             )
 
             with st.expander("🔐 Cấu hình GitHub Sync (chống mất tài khoản)", expanded=False):
                 st.markdown(
-                    """
+                    '''
 **Bước 1 — Tạo Personal Access Token GitHub:**
-1. Vào [https://github.com/settings/tokens?type=beta](https://github.com/settings/tokens?type=beta)
+1. Vào https://github.com/settings/tokens?type=beta
 2. Generate new token (Fine-grained): chọn repo của bạn, quyền **Contents: Read and write**.
 3. Copy token (chỉ xem được 1 lần).
 
