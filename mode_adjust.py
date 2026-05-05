@@ -150,25 +150,16 @@ def render_adjustment_studio():
 
             with right_col:
                 display_name = item.get('original_name', '-')
-                st.markdown(f"<b style='color:#1e1b4b; font-size:1.05rem'>{item.get('product', '-')}</b> &nbsp;·&nbsp; <span style='color:#4338ca'>{item.get('color', '-')}</span> &nbsp;·&nbsp; <code style='font-size:0.8rem'>{display_name}</code>", unsafe_allow_html=True)
+                st.markdown(f"<b style='color:#fff; font-size:1.05rem'>{item.get('product', '-')}</b> &nbsp;·&nbsp; <span style='color:#a78bfa'>{item.get('color', '-')}</span> &nbsp;·&nbsp; <code style='font-size:0.8rem'>{display_name}</code>", unsafe_allow_html=True)
                 
-                # Bố cục thanh trượt gọn gàng trên 1 hàng ngang
+                # Chia cột cho 3 thanh trượt để đỡ tốn diện tích dọc
                 sc_col, x_col, y_col = st.columns(3)
                 with sc_col:
-                    st.slider(
-                        "Scale (%)", 60, 150, 
-                        value=int(st.session_state[scale_key]), step=1, key=scale_key
-                    )
+                    st.slider("Scale (%)", 60, 150, value=int(st.session_state[scale_key]), step=1, key=scale_key)
                 with x_col:
-                    st.slider(
-                        "Lệch ngang (X)", -100, 100, 
-                        value=int(st.session_state[x_key]), step=1, key=x_key
-                    )
+                    st.slider("Lệch ngang (X)", -100, 100, value=int(st.session_state[x_key]), step=1, key=x_key)
                 with y_col:
-                    st.slider(
-                        "Lệch dọc (Y)", -100, 100, 
-                        value=int(st.session_state[y_key]), step=1, key=y_key
-                    )
+                    st.slider("Lệch dọc (Y)", -100, 100, value=int(st.session_state[y_key]), step=1, key=y_key)
 
     st.divider()
     st.markdown("<div class='sec-title'>🚀 XUẤT FILE MỚI SAU KHI ĐÃ ĐIỀU CHỈNH</div>", unsafe_allow_html=True)
