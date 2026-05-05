@@ -259,7 +259,7 @@ def run_mode_web(cfg: dict):
 
     # ── HƯỚNG DẪN ──
     st.markdown("""
-    <div class="guide-box" style="padding:10px 14px;font-size:.84rem">
+    <div class="guide-box" style="padding:10px 14px;font-size:.84rem; background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; margin-bottom:15px;">
         💡 <b>Cách dùng:</b> Dán link sản phẩm TGDD / DMX →
         Bấm <b>Quét</b> → Tick chọn màu → <b>Tải & Resize</b>
     </div>
