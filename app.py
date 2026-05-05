@@ -1,11 +1,12 @@
 """
-app.py — Media Tool Pro VIP v6.0
-Giao diện chính: Login, Sidebar, Config Panel, 4 Tab (Drive / Local / Web / Hướng dẫn).
-Tính năng: Multi-size export, Template naming, Quality & Format control.
-Đã nâng cấp giao diện chuẩn SaaS và xóa Quick Presets.
+app.py — Media Tool Pro VIP v6.0 (Auth & RBAC Edition)
+Giao diện chính tích hợp bảo mật, tạo tài khoản, duyệt và phân quyền Tab động.
+Chống mất dữ liệu qua GitHub Auto-sync.
 """
 
 import streamlit as st
+import time
+import auth  # Module bảo mật chống mất data
 from utils import (
     get_gdrive_service,
     SIZE_PRESETS,
@@ -18,14 +19,14 @@ from utils import (
 # CẤU HÌNH TRANG
 # ══════════════════════════════════════════════════════════════
 st.set_page_config(
-    page_title="Media Tool Pro",
+    page_title="Media Tool VIP",
     layout="wide",
-    page_icon="🖼️",
+    page_icon="💎",
     initial_sidebar_state="expanded",
 )
 
 # ══════════════════════════════════════════════════════════════
-# CSS PREMIUM v6.0 VIP
+# CSS PREMIUM VIP
 # ══════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
@@ -43,7 +44,7 @@ html, body, [class*="css"] {
 .block-container {
     padding-top: 1rem;
     padding-bottom: 2rem;
-    max-width: 1020px;
+    max-width: 1050px;
 }
 
 /* ══════════ SIDEBAR ══════════ */
@@ -108,13 +109,20 @@ div.stDownloadButton > button:hover {
     box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45) !important;
 }
 
-/* ══════════ CARDS ══════════ */
+/* ══════════ CARDS & ADMIN PANELS ══════════ */
 div[data-testid="stVerticalBlockBorderWrapper"] {
     border-radius: 16px !important;
     border: 1px solid #e2e8f0 !important;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05) !important;
     padding: 10px !important;
     background: #ffffff;
+}
+.admin-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 15px;
+    margin-bottom: 15px;
 }
 
 /* ══════════ TABS ══════════ */
@@ -142,34 +150,6 @@ div[data-testid="stTabs"] button[aria-selected="true"] {
     border-left: 4px solid #3b82f6;
 }
 
-/* ══════════ CONTROL BOX ══════════ */
-.control-box {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    padding: 12px 16px;
-    margin: 8px 0 12px;
-}
-
-/* ══════════ LOG TERMINAL ══════════ */
-.log-box {
-    background: #0f172a;
-    color: #38bdf8;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.8rem;
-    line-height: 1.75;
-    padding: 16px;
-    border-radius: 12px;
-    max-height: 250px;
-    overflow-y: auto;
-    margin-top: 8px;
-    border: 1px solid #334155;
-    white-space: pre-wrap;
-    word-break: break-word;
-}
-.log-box::-webkit-scrollbar { width: 6px; }
-.log-box::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
-
 /* ══════════ APP HEADER ══════════ */
 .app-header {
     background: linear-gradient(135deg, #1e293b, #0f172a);
@@ -194,79 +174,92 @@ div[data-testid="stTabs"] button[aria-selected="true"] {
     font-size: 0.95rem;
 }
 
-/* ══════════ SIDEBAR LOGO ══════════ */
-.sb-logo { text-align: center; padding: 16px 0 4px; }
-.sb-icon {
-    width: 48px; height: 48px; border-radius: 14px;
-    background: linear-gradient(135deg, #3b82f6, #2563eb);
-    display: inline-flex; align-items: center; justify-content: center;
-    font-size: 1.5rem; margin-bottom: 8px;
-    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
-}
-.sb-name { font-size: 1.05rem; font-weight: 800; color: #f8fafc !important; }
-.sb-ver { font-size: 0.75rem; color: #94a3b8 !important; }
-
 .cfg-label { font-size: 0.85rem; font-weight: 700; color: #475569; margin-bottom: 8px; }
 .tpl-hint { font-size: 0.75rem; color: #64748b; margin-top: 4px; }
 </style>
 """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════
-# SESSION STATE
+# SESSION STATE - BẢO MẬT & TRẠNG THÁI
 # ══════════════════════════════════════════════════════════════
-for key, default_value in [("download_status", "idle"), ("logged_in", False)]:
-    if key not in st.session_state:
-        st.session_state[key] = default_value
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "username" not in st.session_state:
+    st.session_state.username = None
+if "role" not in st.session_state:
+    st.session_state.role = None
+if "permissions" not in st.session_state:
+    st.session_state.permissions = []
+if "download_status" not in st.session_state:
+    st.session_state.download_status = "idle"
 
 # ══════════════════════════════════════════════════════════════
-# ĐĂNG NHẬP
+# GIAO DIỆN ĐĂNG NHẬP / ĐĂNG KÝ TÀI KHOẢN
 # ══════════════════════════════════════════════════════════════
 if not st.session_state.logged_in:
     _, center_col, _ = st.columns([1, 1.3, 1])
     with center_col:
         st.markdown("""
         <div style="text-align: center; padding: 40px 0 20px;">
-            <div style="width: 70px; height: 70px; border-radius: 18px; background: linear-gradient(135deg, #3b82f6, #2563eb); display: inline-flex; align-items: center; justify-content: center; font-size: 2rem; margin-bottom: 15px; box-shadow: 0 4px 20px rgba(37, 99, 235, 0.4);">🖼️</div>
-            <h1 style="color: #1e293b; font-size: 1.8rem; font-weight: 900; margin: 0;">Media Tool VIP Pro</h1>
-            <p style="color: #64748b; font-size: 0.95rem; margin: 8px 0 25px;">Hệ thống xử lý ảnh siêu phân giải</p>
+            <div style="width: 70px; height: 70px; border-radius: 18px; background: linear-gradient(135deg, #3b82f6, #2563eb); display: inline-flex; align-items: center; justify-content: center; font-size: 2rem; margin-bottom: 15px; box-shadow: 0 4px 20px rgba(37, 99, 235, 0.4);">💎</div>
+            <h1 style="color: #1e293b; font-size: 1.8rem; font-weight: 900; margin: 0;">Media VIP Pro</h1>
+            <p style="color: #64748b; font-size: 0.95rem; margin: 8px 0 15px;">Hệ thống xử lý ảnh độc quyền nội bộ</p>
         </div>
         """, unsafe_allow_html=True)
 
-        with st.container(border=True):
-            username = st.text_input("Tài khoản", placeholder="Nhập tên đăng nhập")
-            password = st.text_input("Mật khẩu", type="password", placeholder="Nhập mật khẩu")
-            if st.button("Đăng Nhập", type="primary", use_container_width=True):
-                if username == "ducpro" and password == "234766":
-                    st.session_state.logged_in = True
-                    st.rerun()
-                else:
-                    st.error("Sai tài khoản hoặc mật khẩu")
-
-        st.markdown(
-            "<p style='text-align:center;color:#94a3b8;font-size:.75rem;"
-            "margin-top:20px'>Media Tool Pro VIP v6.0</p>",
-            unsafe_allow_html=True,
-        )
+        tab_login, tab_register = st.tabs(["🔐 Đăng Nhập", "📝 Đăng Ký Tài Khoản"])
+        
+        with tab_login:
+            with st.container(border=True):
+                user_login = st.text_input("Tài khoản", key="log_user", placeholder="Nhập tên tài khoản")
+                pwd_login = st.text_input("Mật khẩu", type="password", key="log_pwd", placeholder="Nhập mật khẩu")
+                if st.button("Đăng Nhập", type="primary", use_container_width=True):
+                    success, msg, user_data = auth.authenticate(user_login, pwd_login)
+                    if success:
+                        st.session_state.logged_in = True
+                        st.session_state.username = user_login
+                        st.session_state.role = user_data["role"]
+                        st.session_state.permissions = user_data["permissions"]
+                        st.rerun()
+                    else:
+                        st.error(msg)
+                        
+        with tab_register:
+            with st.container(border=True):
+                user_reg = st.text_input("Tên tài khoản mới", key="reg_user")
+                pwd_reg = st.text_input("Mật khẩu", type="password", key="reg_pwd")
+                pwd_confirm = st.text_input("Xác nhận mật khẩu", type="password", key="reg_confirm")
+                if st.button("Đăng Ký Tài Khoản", type="primary", use_container_width=True):
+                    if not user_reg or not pwd_reg:
+                        st.warning("⚠️ Vui lòng nhập đầy đủ thông tin!")
+                    elif pwd_reg != pwd_confirm:
+                        st.error("❌ Mật khẩu xác nhận không khớp!")
+                    else:
+                        success, msg = auth.register_user(user_reg, pwd_reg)
+                        if success:
+                            st.success(msg)
+                        else:
+                            st.error(msg)
     st.stop()
 
 # ══════════════════════════════════════════════════════════════
-# SIDEBAR
+# SIDEBAR (Sau khi đã đăng nhập)
 # ══════════════════════════════════════════════════════════════
 with st.sidebar:
-    st.markdown("""
-    <div class="sb-logo">
-        <div class="sb-icon">🖼️</div><br>
-        <span class="sb-name">Media Tool VIP</span><br>
-        <span class="sb-ver">v6.0 · ducpro</span>
+    st.markdown(f"""
+    <div style="text-align: center; padding: 16px 0;">
+        <div style="font-size: 2.5rem; margin-bottom: 8px;">👤</div>
+        <div style="font-size: 1.1rem; font-weight: 800; color: #fff;">{st.session_state.username.upper()}</div>
+        <div style="font-size: 0.8rem; color: #38bdf8; margin-top: 4px;">Vai trò: {st.session_state.role.upper()}</div>
     </div>
     """, unsafe_allow_html=True)
     st.divider()
 
     drive_service = get_gdrive_service()
     if drive_service:
-        st.markdown('<span style="background:rgba(16,185,129,0.2);color:#34d399;padding:4px 12px;border-radius:20px;font-size:0.8rem;font-weight:700;">✅ Drive API OK</span>', unsafe_allow_html=True)
+        st.markdown('<div style="text-align:center;"><span style="background:rgba(16,185,129,0.2);color:#34d399;padding:4px 12px;border-radius:20px;font-size:0.8rem;font-weight:700;">✅ API Connected</span></div>', unsafe_allow_html=True)
     else:
-        st.markdown('<span style="background:rgba(239,68,68,0.2);color:#f87171;padding:4px 12px;border-radius:20px;font-size:0.8rem;font-weight:700;">⚠️ Drive chưa kết nối</span>', unsafe_allow_html=True)
+        st.markdown('<div style="text-align:center;"><span style="background:rgba(239,68,68,0.2);color:#f87171;padding:4px 12px;border-radius:20px;font-size:0.8rem;font-weight:700;">⚠️ API Disconnected</span></div>', unsafe_allow_html=True)
     st.divider()
 
     st.markdown("**📊 Phiên làm việc**")
@@ -278,38 +271,32 @@ with st.sidebar:
     st.divider()
 
     if st.button("Đăng Xuất", use_container_width=True):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
+        st.session_state.clear()
         st.rerun()
 
 # ══════════════════════════════════════════════════════════════
-# IMPORT MODE MODULES
+# IMPORT CÁC MODULE XỬ LÝ
 # ══════════════════════════════════════════════════════════════
 from mode_drive import run_mode_drive
 from mode_local import run_mode_local
 from mode_web import run_mode_web
 
 # ══════════════════════════════════════════════════════════════
-# HEADER
+# HEADER CHÍNH CỦA APP
 # ══════════════════════════════════════════════════════════════
 st.markdown("""
 <div class="app-header">
     <h1>🖼️ Media Tool VIP Pro</h1>
-    <p>Xuất đa kích thước · Template naming · Mở khóa xử lý ảnh > 500MB · ZIP tự động</p>
+    <p>Hệ thống xử lý ảnh siêu phân giải. Chế độ phân quyền bảo mật cấp cao (RBAC).</p>
 </div>
 """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════
-# CONFIG PANEL (dùng chung cho cả 3 tab, đã bỏ preset nhanh)
+# HÀM RENDER BẢNG CẤU HÌNH DÙNG CHUNG CHO CÁC TAB ĐƯỢC CẤP QUYỀN
 # ══════════════════════════════════════════════════════════════
 def render_config_panel(tab_key: str) -> dict:
     with st.container(border=True):
-        st.markdown(
-            '<div class="sec-title">⚙️ CẤU HÌNH XỬ LÝ CHUYÊN SÂU</div>',
-            unsafe_allow_html=True,
-        )
-        
-        # ── KÍCH THƯỚC & TÙY CHỌN ──
+        st.markdown('<div class="sec-title">⚙️ CẤU HÌNH XỬ LÝ CHUYÊN SÂU</div>', unsafe_allow_html=True)
         col_sizes, col_options = st.columns([1.5, 1])
 
         with col_sizes:
@@ -332,7 +319,6 @@ def render_config_panel(tab_key: str) -> dict:
 
         with col_options:
             st.markdown("<div class='cfg-label'>🎛️ Thông số tối ưu</div>", unsafe_allow_html=True)
-
             quality = st.slider("Chất lượng nén (%):", min_value=50, max_value=100, value=95, step=5, key=f"quality_{tab_key}")
 
             has_letterbox = any(
@@ -352,7 +338,6 @@ def render_config_panel(tab_key: str) -> dict:
                 key=f"fmt_{tab_key}",
             )
 
-        # ── NAMING TEMPLATE ──
         st.markdown("<div class='cfg-label' style='margin-top: 15px;'>✏️ Cấu trúc đặt tên (Naming Template)</div>", unsafe_allow_html=True)
         col_template, col_rename = st.columns([2.5, 1])
         with col_template:
@@ -369,13 +354,11 @@ def render_config_panel(tab_key: str) -> dict:
         st.markdown(
             "<div class='tpl-hint'>"
             "Biến hỗ trợ: <code>{name}</code> tên SP · <code>{color}</code> màu · "
-            "<code>{nn}</code> số 01 · <code>{nnn}</code> số 001 · "
-            "<code>{original}</code> tên file gốc"
+            "<code>{nn}</code> số 01 · <code>{nnn}</code> số 001 · <code>{original}</code> tên gốc"
             "</div>",
             unsafe_allow_html=True,
         )
 
-    # ── BUILD CONFIG DICT ──
     sizes_list = []
     for label in selected_labels:
         if label in SIZE_PRESETS:
@@ -395,108 +378,124 @@ def render_config_panel(tab_key: str) -> dict:
     }
 
 # ══════════════════════════════════════════════════════════════
-# TABS
+# XÂY DỰNG TABS ĐỘNG DỰA TRÊN QUYỀN (RBAC)
 # ══════════════════════════════════════════════════════════════
-tab_drive, tab_local, tab_web, tab_guide = st.tabs([
-    "🌐 Google Drive",
-    "💻 Local (ZIP)",
-    "🛒 Web TGDD/DMX",
-    "📖 Hướng dẫn",
-])
+is_admin = (st.session_state.role == "admin")
+perms = st.session_state.permissions
 
-# ── TAB 1: GOOGLE DRIVE ──
-with tab_drive:
-    config_drive = render_config_panel("drive")
-    run_mode_drive(config_drive, drive_service)
+tab_names = []
+if is_admin: 
+    tab_names.append("🛡️ ADMIN PANEL")
+if is_admin or "drive" in perms: 
+    tab_names.append("🌐 Google Drive")
+if is_admin or "local" in perms: 
+    tab_names.append("💻 Local (ZIP)")
+if is_admin or "web" in perms: 
+    tab_names.append("🛒 Web TGDD/DMX")
+tab_names.append("📖 Hướng dẫn")
 
-# ── TAB 2: LOCAL (ZIP) ──
-with tab_local:
-    config_local = render_config_panel("local")
-    run_mode_local(config_local)
+# Render các Tab được cấp quyền
+tabs = st.tabs(tab_names)
+tab_idx = 0
 
-# ── TAB 3: WEB TGDD / DMX ──
-with tab_web:
-    config_web = render_config_panel("web")
-    run_mode_web(config_web)
+# ── TAB 0: ADMIN PANEL (Chỉ Admin mới thấy) ──
+if is_admin:
+    with tabs[tab_idx]:
+        st.markdown('<div class="sec-title">👑 QUẢN LÝ TÀI KHOẢN & PHÂN QUYỀN TRUY CẬP</div>', unsafe_allow_html=True)
+        db = auth.load_db()
+        
+        for u_name, u_data in db.items():
+            if u_data["role"] == "admin": 
+                continue # Không tự sửa quyền admin
+            
+            with st.container():
+                st.markdown(f'<div class="admin-card">', unsafe_allow_html=True)
+                col_info, col_status, col_perms, col_action = st.columns([1.5, 1, 2, 1])
+                
+                with col_info:
+                    st.markdown(f"**👤 {u_name}**")
+                    if u_data["status"] == "pending":
+                        st.markdown("🔴 *Đang chờ duyệt*")
+                    elif u_data["status"] == "approved":
+                        st.markdown("🟢 *Đã duyệt*")
+                    else:
+                        st.markdown("⚫ *Đã khóa*")
+                        
+                with col_status:
+                    new_st = st.selectbox(
+                        "Trạng thái", 
+                        ["pending", "approved", "banned"], 
+                        index=["pending", "approved", "banned"].index(u_data["status"]),
+                        key=f"st_{u_name}"
+                    )
+                with col_perms:
+                    new_pm = st.multiselect(
+                        "Phân quyền Tab", 
+                        ["drive", "local", "web"], 
+                        default=u_data["permissions"], 
+                        key=f"pm_{u_name}"
+                    )
+                with col_action:
+                    st.write("") # Căn lề cho nút
+                    if st.button("Lưu & Đồng bộ", key=f"save_{u_name}", type="primary", use_container_width=True):
+                        auth.update_user_admin(u_name, new_st, new_pm)
+                        st.success("Đã lưu!")
+                        time.sleep(1)
+                        st.rerun()
+                    if st.button("Xóa User", key=f"del_{u_name}", use_container_width=True):
+                        auth.delete_user(u_name)
+                        st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+    tab_idx += 1
 
-# ── TAB 4: HƯỚNG DẪN ──
-with tab_guide:
+# ── TAB: GOOGLE DRIVE ──
+if is_admin or "drive" in perms:
+    with tabs[tab_idx]:
+        config_drive = render_config_panel("drive")
+        run_mode_drive(config_drive, drive_service)
+    tab_idx += 1
+
+# ── TAB: LOCAL (ZIP) ──
+if is_admin or "local" in perms:
+    with tabs[tab_idx]:
+        config_local = render_config_panel("local")
+        run_mode_local(config_local)
+    tab_idx += 1
+
+# ── TAB: WEB TGDD/DMX ──
+if is_admin or "web" in perms:
+    with tabs[tab_idx]:
+        config_web = render_config_panel("web")
+        run_mode_web(config_web)
+    tab_idx += 1
+
+# ── TAB: HƯỚNG DẪN ──
+with tabs[tab_idx]:
     st.markdown("""
     <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:14px; padding:16px 20px; margin-bottom:14px; font-size:0.9rem; line-height:1.8;">
         <div style='font-size:1.05rem;font-weight:800;color:#1e293b;margin-bottom:8px'>
-            📋 Media Tool VIP Pro v6.0 — Hệ thống xử lý ảnh chuyên nghiệp
+            📋 Hệ thống Media Tool VIP Pro — Phân quyền bảo mật
         </div>
-        Xuất <b>đa kích thước cùng lúc</b> từ 1 nguồn ảnh.
-        Đã <b>mở khóa giới hạn dung lượng ảnh</b> (cho phép xử lý file lên đến 500MB+).
-        Đặt tên bằng <b>template linh hoạt</b> ({name}_{color}_{nn}).
-        Chọn <b>format xuất</b> (JPEG / PNG / WebP) và chất lượng tùy chỉnh.
+        Hệ thống này hoạt động theo cơ chế <b>RBAC (Role-Based Access Control)</b>. 
+        Bạn chỉ nhìn thấy các Tab mà Quản trị viên (Admin) đã phê duyệt và cấp quyền cho bạn.
+        Dữ liệu tài khoản của bạn được đồng bộ tự động lên server chống mất phiên làm việc.
     </div>
     """, unsafe_allow_html=True)
-
+    
     col_left, col_right = st.columns(2)
-
     with col_left:
-        with st.expander("🌐 Google Drive — Hướng dẫn", expanded=True):
+        with st.expander("Quy trình duyệt tài khoản (Dành cho người mới)", expanded=True):
             st.markdown("""
-**Bước 1:** Chia sẻ file/folder → "Bất kỳ ai có link"
-
-**Bước 2:** Dán link vào ô (mỗi dòng 1 link)
-
-**Bước 3:** Bật "Cho phép sửa tên SP" → điền tên cho từng link
-
-**Bước 4:** Chọn kích thước (nhiều cùng lúc) → Bắt đầu
-
-**Kết quả:** ZIP chứa subfolder cho mỗi kích thước nếu chọn nhiều.
-
-*Folder/file lỗi tự động bỏ qua, không ảnh hưởng link khác.*
+            1. Đăng ký tài khoản ở màn hình Đăng Nhập.
+            2. Báo cho Quản trị viên (`ducpro`).
+            3. Quản trị viên vào Admin Panel đổi trạng thái từ Pending -> Approved.
+            4. Quản trị viên tick chọn Tab được phép sử dụng (Web, Local, Drive).
+            5. Đăng nhập lại để thấy các Tab công cụ.
             """)
-
-        with st.expander("💻 Local (ZIP) — Hướng dẫn"):
-            st.markdown("""
-**Bước 1:** Nén ảnh thành file `.zip` (giữ cấu trúc thư mục)
-
-**Bước 2:** Upload lên (hỗ trợ nhiều file cùng lúc)
-
-**Bước 3:** Bật "Cho phép sửa tên SP" → đặt tên folder output
-
-**Bước 4:** Chọn cấu hình → Bắt đầu → Tải ZIP kết quả
-
-*Hỗ trợ: jpg, png, webp, bmp. Tự động bỏ qua __MACOSX, .DS_Store.*
-            """)
-
     with col_right:
-        with st.expander("🛒 Web TGDD / DMX — Hướng dẫn", expanded=True):
+        with st.expander("Tính năng xử lý ảnh VIP", expanded=True):
             st.markdown("""
-**Bước 1:** Dán link sản phẩm TGDD / DMX
-
-**Bước 2:** Bấm "Quét" → hệ thống phát hiện màu sắc
-
-**Bước 3:** Tick chọn màu cần tải, sửa tên nếu muốn
-
-**Bước 4:** Bắt đầu → Tải ZIP
-
-*Cấu trúc: `tên_sp/tên_màu/ảnh.jpg`. Ảnh lỗi tự động bỏ qua.*
+            - **Mở khóa Max Image Pixels**: Xử lý ảnh > 500MB không bị văng.
+            - **Naming Template**: Đổi tên linh hoạt `{name}_{color}_{nn}`.
+            - **Multi-size Auto-ZIP**: Xuất nhiều size vào sub-folder tự động.
             """)
-
-        with st.expander("🔧 Template đặt tên — Chi tiết"):
-            st.markdown("""
-| Biến | Ý nghĩa | Ví dụ output |
-|---|---|---|
-| `{name}` | Tên sản phẩm / folder | Samsung_S25 |
-| `{color}` | Tên màu sắc | Den, Trang |
-| `{nn}` | Số thứ tự 2 chữ số | 01, 02, 03 |
-| `{nnn}` | Số thứ tự 3 chữ số | 001, 002 |
-| `{original}` | Tên file gốc | IMG_1234 |
-
-**Ví dụ template:**
-- `{name}_{nn}` → `Samsung_S25_01.jpg`
-- `{name}_{color}_{nn}` → `Samsung_S25_Den_01.jpg`
-- `SP_{original}` → `SP_IMG_1234.jpg`
-            """)
-
-    st.divider()
-    st.markdown(
-        "<p style='text-align:center;color:#94a3b8;font-size:0.8rem'>"
-        "Media Tool VIP Pro v6.0 · Streamlit · Python · Pillow</p>",
-        unsafe_allow_html=True,
-    )
