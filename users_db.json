@@ -14,7 +14,9 @@
         "role": "user",
         "status": "approved",
         "permissions": [
-            "web"
+            "web",
+            "drive",
+            "local"
         ]
     }
 }
