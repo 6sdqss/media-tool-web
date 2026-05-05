@@ -11,5 +11,13 @@
         ],
         "created_at": "2026-05-05 10:41:16",
         "note": "Master admin"
+    },
+    "hoangpro": {
+        "password": "3d3c99f692335a07e51b9b36f3b134611ab221ff192964a40fefbf2ea396f5e2",
+        "role": "user",
+        "status": "pending",
+        "permissions": [],
+        "created_at": "2026-05-05 10:48:19",
+        "note": ""
     }
 }
