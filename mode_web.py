@@ -1,11 +1,9 @@
 """
-mode_web.py — Tab Web TGDD
-Chỉ tập trung cho TheGioiDiDong:
-- Quét sản phẩm
-- Tự phát hiện màu
-- Tải gallery ảnh
-- Resize đa kích thước
-- Lưu manifest để chỉnh scale từng ảnh ở tab Studio
+mode_web.py — Tab Web TGDD v9.0
+─────────────────────────────────────────────────────────
+Quét sản phẩm TGDD → tự phát hiện màu → tải gallery → resize đa size.
+Lưu manifest cho phép Studio Scale chỉnh từng ảnh sau batch.
+Giao diện compact, mobile-friendly.
 """
 
 from __future__ import annotations
@@ -46,7 +44,6 @@ from utils import (
 # ╔══════════════════════════════════════════════════════════════╗
 # ║  HTTP SESSION                                                ║
 # ╚══════════════════════════════════════════════════════════════╝
-
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -68,7 +65,6 @@ TGDD_HOSTS = {"www.thegioididong.com", "thegioididong.com", "m.thegioididong.com
 # ╔══════════════════════════════════════════════════════════════╗
 # ║  HELPERS                                                     ║
 # ╚══════════════════════════════════════════════════════════════╝
-
 def _is_tgdd_url(url: str) -> bool:
     try:
         host = urlparse(url).netloc.lower()
@@ -278,10 +274,14 @@ def _download_single_image(image_url: str, save_path: Path, max_retries: int = 3
     return False
 
 
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  MAIN UI                                                     ║
+# ╚══════════════════════════════════════════════════════════════╝
 def run_mode_web(cfg: dict):
     st.markdown(
         "<div class='guide-box'>"
-        "💡 <b>Workflow VIP Pro TGDD:</b> dán link sản phẩm TGDD → quét màu → tải gallery → resize → sang tab <b>Studio Scale</b> để chỉnh riêng từng ảnh nếu bị zoom lố."
+        "💡 <b>Workflow TGDD:</b> dán link → quét → chọn màu → resize. "
+        "Sau đó qua <b>Studio</b> để chỉnh từng ảnh nếu cần."
         "</div>",
         unsafe_allow_html=True,
     )
@@ -291,14 +291,13 @@ def run_mode_web(cfg: dict):
     if "web_zip_path" not in st.session_state:
         st.session_state.web_zip_path = ""
 
-    st.markdown('<div class="sec-title">🔗 LINK SẢN PHẨM TGDD</div>', unsafe_allow_html=True)
-    
-    # Chia 2 cột để nút quét nằm kế bên text_area cho gọn
+    st.markdown('<div class="sec-title">🔗 Link sản phẩm TGDD</div>', unsafe_allow_html=True)
+
     col_input, col_btn = st.columns([4, 1])
     with col_input:
         links_text = st.text_area(
-            "Links sản phẩm TGDD",
-            height=100,
+            "Links",
+            height=80,
             placeholder=(
                 "https://www.thegioididong.com/dtdd/iphone-16-pro-max\n"
                 "https://www.thegioididong.com/laptop/abc..."
@@ -307,7 +306,7 @@ def run_mode_web(cfg: dict):
             key="web_links_input",
         )
     with col_btn:
-        st.write("") # Căn chỉnh độ cao
+        st.write("")
         scan_clicked = st.button("🔍 QUÉT", use_container_width=True, key="btn_web_scan")
 
     if scan_clicked:
@@ -317,9 +316,9 @@ def run_mode_web(cfg: dict):
         else:
             invalid_links = [url for url in links if not _is_tgdd_url(url)]
             if invalid_links:
-                st.error("Chỉ hỗ trợ link TheGioiDiDong. Hãy bỏ các link ngoài TGDD rồi quét lại.")
+                st.error("Chỉ hỗ trợ link TheGioiDiDong.")
             else:
-                with st.spinner("Đang quét sản phẩm, tên và màu sắc từ TGDD..."):
+                with st.spinner("Đang quét sản phẩm và màu..."):
                     def scan_product(link: str):
                         real_url = resolve_url(link)
                         return {
@@ -331,7 +330,8 @@ def run_mode_web(cfg: dict):
 
                     scan_results = []
                     order_map = {link: idx for idx, link in enumerate(links)}
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=min(6, max(2, int(cfg.get("max_workers", 4))))) as executor:
+                    workers = min(6, max(2, int(cfg.get("max_workers", 4))))
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
                         future_map = {executor.submit(scan_product, link): link for link in links}
                         for future in concurrent.futures.as_completed(future_map):
                             try:
@@ -341,13 +341,13 @@ def run_mode_web(cfg: dict):
                     scan_results.sort(key=lambda item: order_map.get(item["original"], 9999))
                     st.session_state.web_scanned = scan_results
                     st.session_state.web_zip_path = ""
-                st.success(f"Quét xong {len(st.session_state.web_scanned)} sản phẩm TGDD.")
+                st.success(f"Quét xong {len(st.session_state.web_scanned)} sản phẩm.")
 
     selected_tasks: list[dict] = []
     rename_enabled = bool(cfg.get("rename", True))
 
     if st.session_state.web_scanned:
-        st.markdown('<div class="sec-title">🎨 CHỌN MÀU & TÊN SẢN PHẨM</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sec-title">🎨 Chọn màu & tên xuất</div>', unsafe_allow_html=True)
 
         for product_idx, product_item in enumerate(st.session_state.web_scanned):
             auto_name = product_item["name"]
@@ -355,9 +355,9 @@ def run_mode_web(cfg: dict):
             with st.expander(f"📦 {auto_name} — {len(colors)} màu", expanded=True):
                 if rename_enabled:
                     custom_product_name = st.text_input(
-                        "Tên sản phẩm xuất ra",
+                        "Tên xuất ra",
                         value="",
-                        placeholder=f"{auto_name} (để trống = dùng tên tự động)",
+                        placeholder=f"{auto_name} (trống = tự động)",
                         key=f"web_product_name_{product_idx}_{hash(product_item['original'])}",
                     )
                     display_name = custom_product_name.strip() if custom_product_name.strip() else auto_name
@@ -365,7 +365,7 @@ def run_mode_web(cfg: dict):
                 else:
                     display_name = auto_name
 
-                num_cols = min(max(len(colors), 1), 4)
+                num_cols = min(max(len(colors), 1), 3)
                 columns = st.columns(num_cols)
                 for color_idx, color_info in enumerate(colors):
                     checkbox_key = f"web_color_{product_idx}_{color_idx}_{hash(product_item['original'])}"
@@ -377,9 +377,9 @@ def run_mode_web(cfg: dict):
                                 "link": color_info["link"],
                             })
 
-        st.caption(f"Đã chọn {len(selected_tasks)} biến thể màu để tải và resize.")
+        st.caption(f"Đã chọn {len(selected_tasks)} biến thể màu.")
 
-        if st.button("🚀 TẢI ẢNH TGDD & RESIZE", type="primary", use_container_width=True, key="btn_web_process"):
+        if st.button("🚀 TẢI ẢNH & RESIZE", type="primary", use_container_width=True, key="btn_web_process"):
             if not selected_tasks:
                 st.error("Bạn chưa chọn màu nào.")
                 return
@@ -402,11 +402,10 @@ def run_mode_web(cfg: dict):
             log_placeholder = st.empty()
             logs: list[str] = []
             manifest_items: list[dict] = []
-            total_downloaded = 0
 
             def log(message: str):
                 logs.append(message)
-                visible = logs[-30:]
+                visible = logs[-25:]
                 log_placeholder.markdown(
                     "<div class='log-box'>" + "<br>".join(visible) + "</div>",
                     unsafe_allow_html=True,
@@ -421,7 +420,7 @@ def run_mode_web(cfg: dict):
                 folder_path = f"{clean_name(product_name)}/{clean_name(color_name)}"
 
                 status_placeholder.info(
-                    f"[{task_idx}/{len(selected_tasks)}] Đang tải TGDD: {product_name} / {color_name}"
+                    f"[{task_idx}/{len(selected_tasks)}] {product_name} / {color_name}"
                 )
                 log(f"▶ {product_name} / {color_name}")
 
@@ -431,7 +430,7 @@ def run_mode_web(cfg: dict):
                     image_urls = []
 
                 if not image_urls:
-                    log("⚠️ Không tìm được gallery ảnh từ trang màu này")
+                    log("⚠️ Không tìm được gallery")
                     progress_bar.progress(task_idx / len(selected_tasks))
                     continue
 
@@ -458,7 +457,7 @@ def run_mode_web(cfg: dict):
                             break
                         image_index, image_url, save_path, ok = future.result()
                         if not ok:
-                            log(f"⚠️ Lỗi tải ảnh #{image_index}")
+                            log(f"⚠️ Lỗi tải #{image_index}")
                             continue
 
                         meta_info = safe_image_meta(save_path)
@@ -488,7 +487,6 @@ def run_mode_web(cfg: dict):
                             "source_height": meta_info.get("height", 0),
                             "source_size_bytes": meta_info.get("size_bytes", 0),
                         })
-                        total_downloaded += 1
                         log(
                             f"✅ #{image_index} {save_path.name} · "
                             f"{meta_info.get('width', 0)}×{meta_info.get('height', 0)} · "
@@ -496,7 +494,7 @@ def run_mode_web(cfg: dict):
                         )
 
                 if successful_items:
-                    log(f"📦 Hoàn tất {len(successful_items)}/{len(image_urls)} ảnh cho {product_name} / {color_name}")
+                    log(f"📦 {len(successful_items)}/{len(image_urls)} ảnh OK")
                 else:
                     log(f"❌ Không tải được ảnh nào cho {product_name} / {color_name}")
 
@@ -508,11 +506,11 @@ def run_mode_web(cfg: dict):
             if output_files:
                 renamed_count = batch_rename_with_template(final_dir, cfg.get("template", "{name}_{nn}"))
                 if renamed_count:
-                    log(f"✏️ Đã đổi tên {renamed_count} ảnh theo template")
+                    log(f"✏️ Đã đổi tên {renamed_count} ảnh")
 
                 make_zip(final_dir, zip_path, compresslevel=int(cfg.get("zip_compression", 6)))
                 st.session_state.web_zip_path = str(zip_path)
-                status_placeholder.success(f"VIP Pro hoàn tất — {len(output_files)} ảnh output")
+                status_placeholder.success(f"🎉 Hoàn tất — {len(output_files)} ảnh output")
                 show_preview(final_dir)
                 show_processing_summary(final_dir, cfg.get("sizes", []), duration)
 
@@ -536,9 +534,9 @@ def run_mode_web(cfg: dict):
                 size_label = " + ".join([get_size_label(w, h, m) for w, h, m in cfg.get("sizes", [])])
                 product_names = list({t["product"] for t in selected_tasks})
                 add_to_history("Web", ", ".join(product_names[:3]), len(output_files), size_label, duration)
-                st.info("Nếu có ảnh nào zoom bị lố, sang tab ‘Studio Scale’ để chỉnh riêng từng ảnh rồi render lại batch.")
+                st.info("💡 Sang tab 'Studio' để chỉnh riêng từng ảnh nếu cần.")
             else:
-                status_placeholder.error("Không có ảnh nào tải và xử lý thành công.")
+                status_placeholder.error("Không có ảnh nào tải/xử lý thành công.")
 
             st.session_state.download_status = "idle"
 
@@ -546,7 +544,7 @@ def run_mode_web(cfg: dict):
     if zip_file:
         try:
             zip_path = Path(st.session_state["web_zip_path"])
-            st.success(f"ZIP TGDD sẵn sàng — {readable_file_size(zip_path.stat().st_size)}")
+            st.success(f"📦 ZIP TGDD · {readable_file_size(zip_path.stat().st_size)}")
             st.download_button(
                 label="📥 TẢI ZIP TGDD",
                 data=zip_file,
