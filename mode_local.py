@@ -56,7 +56,7 @@ def run_mode_local(cfg: dict):
 
     # ── HƯỚNG DẪN ──
     st.markdown("""
-    <div class="guide-box" style="padding:10px 14px;font-size:.84rem; background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; margin-bottom:15px;">
+    <div class="guide-box" style="padding:10px 14px;font-size:.84rem">
         💡 <b>Cách dùng:</b> Nén thư mục ảnh thành file <b>.zip</b> rồi upload lên đây.
         Có thể upload <b>nhiều file ZIP</b> cùng lúc.
     </div>
