@@ -292,18 +292,24 @@ def run_mode_web(cfg: dict):
         st.session_state.web_zip_path = ""
 
     st.markdown('<div class="sec-title">🔗 LINK SẢN PHẨM TGDD</div>', unsafe_allow_html=True)
-    links_text = st.text_area(
-        "Links sản phẩm TGDD",
-        height=120,
-        placeholder=(
-            "https://www.thegioididong.com/dtdd/iphone-16-pro-max\n"
-            "https://www.thegioididong.com/laptop/abc..."
-        ),
-        label_visibility="collapsed",
-        key="web_links_input",
-    )
+    
+    # Chia 2 cột để nút quét nằm kế bên text_area cho gọn
+    col_input, col_btn = st.columns([4, 1])
+    with col_input:
+        links_text = st.text_area(
+            "Links sản phẩm TGDD",
+            height=100,
+            placeholder=(
+                "https://www.thegioididong.com/dtdd/iphone-16-pro-max\n"
+                "https://www.thegioididong.com/laptop/abc..."
+            ),
+            label_visibility="collapsed",
+            key="web_links_input",
+        )
+    with col_btn:
+        st.write("") # Căn chỉnh độ cao
+        scan_clicked = st.button("🔍 QUÉT", use_container_width=True, key="btn_web_scan")
 
-    scan_clicked = st.button("🔍 QUÉT SẢN PHẨM TGDD", use_container_width=True, key="btn_web_scan")
     if scan_clicked:
         links = [line.strip() for line in links_text.splitlines() if line.strip()]
         if not links:
