@@ -2,7 +2,7 @@
 app.py — Media Tool Pro VIP Pro v8.0
 - Auth + Admin Panel + GitHub Sync
 - Phân quyền tab theo user
-- Giao diện Premium kết thừa từ v6.0
+- Giao diện Premium kết thừa từ v6.0 (Cập nhật Dark Mode nhỏ gọn)
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ st.set_page_config(
 
 
 # ══════════════════════════════════════════════════════════════
-# CSS — VIP PRO PREMIUM (Kế thừa phong cách v6.0)
+# CSS — VIP PRO PREMIUM (Dark Mode Nhỏ gọn)
 # ══════════════════════════════════════════════════════════════
 st.markdown(
     """
@@ -79,173 +79,139 @@ st.markdown(
 .stDeployButton {display:none;}
 html, body, [class*="css"] {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 14px !important;
+}
+.stApp {
+    background-color: #0f0f13;
+    color: #e2e8f0;
 }
 .block-container {
-    max-width: 1320px;
-    padding-top: 1rem;
+    max-width: 1000px;
+    padding-top: 2rem;
     padding-bottom: 2rem;
 }
 
 /* ── SIDEBAR ── */
 section[data-testid="stSidebar"] {
-    background: linear-gradient(175deg, #0a0e1a 0%, #111827 50%, #1a2332 100%) !important;
-    border-right: 1px solid rgba(99, 102, 241, 0.1) !important;
+    background: #15151a !important;
+    border-right: 1px solid #2d2d3f !important;
 }
 section[data-testid="stSidebar"] * { color: #cbd5e1 !important; }
 section[data-testid="stSidebar"] hr {
-    border-color: rgba(99, 102, 241, 0.08) !important;
-    margin: 8px 0 !important;
+    border-color: #2d2d3f !important;
+    margin: 12px 0 !important;
 }
 
 /* ── HERO & CARDS ── */
 .app-header {
-    background: linear-gradient(135deg, #1e1b4b, #312e81, #4c1d95);
+    background: #1a1a24;
     color: #fff;
-    border-radius: 16px;
-    padding: 22px 28px;
-    margin-bottom: 18px;
-    box-shadow: 0 8px 24px rgba(49, 46, 129, 0.25);
-    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 14px;
+    border: 1px solid #2d2d3f;
 }
-.app-header h1 { margin:0; font-size:1.8rem; font-weight:900; color:#fff; letter-spacing:-.02em; }
-.app-header p  { margin:6px 0 0; color:#c4b5fd; line-height:1.6; font-size:.95rem; }
+.app-header h1 { margin:0; font-size:1.4rem; font-weight:800; color:#fff; }
+.app-header p  { margin:4px 0 0; color:#a1a1aa; font-size:.85rem; }
 
 .hero-card {
-    background: linear-gradient(135deg,#f8fbff 0%,#eef4ff 48%,#f5f3ff 100%);
-    border: 1px solid rgba(99,102,241,0.12);
-    border-radius: 14px;
-    padding: 18px 20px;
-    margin-bottom: 14px;
-    box-shadow: 0 4px 12px rgba(99,102,241,0.04);
+    background: #1a1a24;
+    border: 1px solid #2d2d3f;
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
 }
-.hero-card h2 { margin:0 0 4px; color:#1e1b4b; font-size:1.15rem; font-weight:800; }
-.hero-card p  { margin:0; color:#4b5563; line-height:1.6; font-size:.9rem; }
+.hero-card h2 { margin:0 0 4px; color:#fff; font-size:1.1rem; font-weight:700; }
+.hero-card p  { margin:0; color:#a1a1aa; font-size:.85rem; }
 
 /* ── BORDERS & CONTAINERS ── */
 div[data-testid="stVerticalBlockBorderWrapper"] {
-    border-radius: 14px !important;
-    border: 1px solid rgba(99, 102, 241, 0.12) !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02) !important;
-    padding: 10px 6px !important;
-    background: #ffffff;
+    border-radius: 10px !important;
+    border: 1px solid #2d2d3f !important;
+    padding: 12px !important;
+    background: #15151a;
 }
 
 /* ── TITLES & LABELS ── */
 .sec-title {
-    font-size: 0.78rem; font-weight: 800; color: #6d28d9;
-    text-transform: uppercase; letter-spacing: 1.4px;
-    margin: 16px 0 10px; padding: 6px 14px;
-    border-left: 4px solid #7c3aed;
-    background: linear-gradient(90deg, rgba(124, 58, 237, 0.08), transparent);
-    border-radius: 0 8px 8px 0;
+    font-size: 0.8rem; font-weight: 700; color: #a78bfa;
+    text-transform: uppercase; letter-spacing: 1px;
+    margin: 12px 0 8px; padding: 4px 10px;
+    border-left: 3px solid #8b5cf6;
+    background: rgba(139, 92, 246, 0.1);
+    border-radius: 0 6px 6px 0;
 }
-.cfg-label { font-size:.85rem; font-weight:700; color:#4c1d95; margin-bottom:5px; }
-.tpl-hint  { font-size:.75rem; color:#6b7280; margin-top:4px; line-height:1.6; }
+.cfg-label { font-size:.85rem; font-weight:600; color:#c4b5fd; margin-bottom:4px; }
+.tpl-hint  { font-size:.75rem; color:#6b7280; margin-top:2px; }
 
 /* ── GUIDE BOX ── */
 .guide-box {
-    background: linear-gradient(135deg,#f5f3ff,#ede9fe,#ddd6fe);
-    border: 1px solid rgba(124,58,237,0.15);
-    border-radius: 12px;
-    padding: 16px 20px; line-height: 1.8;
-    font-size: .9rem; color: #334155;
-    margin-bottom: 14px;
+    background: rgba(139, 92, 246, 0.05);
+    border: 1px solid rgba(139, 92, 246, 0.2);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: .85rem; color: #cbd5e1;
+    margin-bottom: 10px;
 }
-.guide-box b { color: #5b21b6; }
 
 /* ── LOG BOX ── */
 .log-box {
-    background: linear-gradient(180deg,#0a0e1a,#111827);
-    color: #67e8f9;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: .8rem; line-height: 1.7;
-    padding: 16px; border-radius: 12px;
-    max-height: 280px; overflow-y: auto;
-    border: 1px solid rgba(99,102,241,0.2);
-    white-space: pre-wrap; word-break: break-word;
+    background: #000;
+    color: #4ade80;
+    font-family: monospace;
+    font-size: .75rem;
+    padding: 12px; border-radius: 8px;
+    max-height: 220px; overflow-y: auto;
+    border: 1px solid #333;
 }
 
-/* ── TABS ── */
-div[data-testid="stTabs"] button {
-    font-weight: 700 !important; font-size: .95rem !important;
-    border-radius: 10px 10px 0 0 !important;
-    padding: 10px 20px !important;
-}
-div[data-testid="stTabs"] button[aria-selected="true"] {
-    color: #6d28d9 !important;
-    border-bottom: 3px solid #7c3aed !important;
-    background: rgba(124, 58, 237, 0.05) !important;
-}
-
-/* ── BUTTONS ── */
+/* ── BUTTONS & INPUTS ── */
 .stButton > button, .stDownloadButton > button {
-    border-radius: 12px !important;
-    min-height: 46px !important;
-    font-weight: 700 !important;
-    font-size: .95rem !important;
-    transition: all .2s ease !important;
-    border: 1px solid #e5e7eb !important;
+    background-color: #8b5cf6 !important;
+    color: white !important;
+    border-radius: 8px !important;
+    border: none !important;
+    font-weight: 600 !important;
+    min-height: 38px !important;
+    padding: 4px 12px !important;
 }
-.stButton > button[kind="primary"], .stDownloadButton > button {
-    background: linear-gradient(135deg,#4f46e5,#7c3aed) !important;
-    color: #fff !important; border: none !important;
-    box-shadow: 0 4px 14px rgba(99,102,241,0.25) !important;
-}
-.stButton > button[kind="primary"]:hover, .stDownloadButton > button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(99,102,241,0.35) !important;
+.stButton > button:hover { background-color: #7c3aed !important; }
+
+.stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] {
+    background-color: #1e1e28 !important;
+    border: 1px solid #2d2d3f !important;
+    border-radius: 8px !important;
+    color: white !important;
+    font-size: 13px !important;
+    min-height: 38px !important;
 }
 
 /* ── LOGIN ── */
-.login-shell { max-width: 480px; margin: 3rem auto 0; }
+.login-shell { max-width: 400px; margin: 4rem auto 0; }
 .login-card {
-    background: white; border-radius: 20px;
-    padding: 30px 24px;
-    border: 1px solid rgba(99,102,241,0.15);
-    box-shadow: 0 15px 40px rgba(15,23,42,0.08);
+    background: #1a1a24;
+    border-radius: 16px;
+    padding: 24px;
+    border: 1px solid #2d2d3f;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
 }
 .login-brand {
-    width:76px; height:76px; border-radius:18px;
-    margin:0 auto 16px;
+    width:60px; height:60px; border-radius:14px; margin:0 auto 12px;
     display:flex; align-items:center; justify-content:center;
-    background: linear-gradient(135deg,#4f46e5,#7c3aed);
-    color:#fff; font-size:2.2rem;
-    box-shadow: 0 10px 24px rgba(99,102,241,0.3);
+    background: #8b5cf6; color:#fff; font-size:1.8rem;
 }
-.login-title { text-align:center; color:#1e1b4b; font-weight:900; font-size:1.6rem; margin:0; }
-.login-sub   { text-align:center; color:#64748b; margin:6px 0 20px; line-height:1.6; font-size:.9rem; }
-
-/* ── BADGES & STATUS ── */
-.status-pill {
-    display:inline-block;
-    padding: 5px 12px; border-radius: 999px;
-    font-size:.75rem; font-weight:700;
-    margin-right:4px;
-}
-.status-ok   { background: linear-gradient(135deg,#d1fae5,#a7f3d0); color: #065f46; }
-.status-live { background: linear-gradient(135deg,#dbeafe,#bfdbfe); color: #1d4ed8; }
-.status-admin{ background: linear-gradient(135deg,#fde68a,#fcd34d); color: #92400e; }
+.login-title { text-align:center; color:#fff; font-weight:800; font-size:1.4rem; margin:0; }
+.login-sub   { text-align:center; color:#a1a1aa; margin:4px 0 16px; font-size:.85rem; }
 
 .user-chip {
-    background: rgba(99,102,241,0.15);
+    background: #1e1e28;
     border-radius: 12px;
     padding: 12px 14px;
-    border: 1px solid rgba(99,102,241,0.25);
+    border: 1px solid #2d2d3f;
     margin-bottom: 10px;
 }
 .user-chip b { color:#fff !important; font-size:.95rem; }
 .user-chip span { color:#94a3b8 !important; font-size:.75rem; }
-
-.lock-card {
-    background: linear-gradient(135deg,#fef2f2,#fee2e2);
-    border: 1px solid #fecaca;
-    border-radius: 14px;
-    padding: 24px 28px;
-    text-align: center;
-    color: #991b1b;
-}
-.lock-card h3 { margin: 0 0 8px; font-size: 1.15rem; font-weight: 800; }
-.lock-card p  { margin: 0; font-size: .9rem; line-height: 1.6; color:#7f1d1d; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -272,11 +238,8 @@ def render_login_screen():
         """
         <div class="login-card">
             <div class="login-brand">🖼️</div>
-            <h1 class="login-title">Media Tool Pro VIP Pro</h1>
-            <p class="login-sub">
-                Hệ thống tài khoản bảo mật · Phân quyền theo từng tab · 
-                Đồng bộ GitHub chống mất dữ liệu trên Streamlit Cloud.
-            </p>
+            <h1 class="login-title">Thumbnail Builder Pro</h1>
+            <p class="login-sub">Đăng nhập để sử dụng</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -285,7 +248,7 @@ def render_login_screen():
     tab_login, tab_register = st.tabs(["🔐 Đăng nhập", "📝 Đăng ký"])
 
     with tab_login:
-        username = st.text_input("Tài khoản", placeholder="Nhập tên đăng nhập", key="login_user")
+        username = st.text_input("Tên đăng nhập", placeholder="Nhập tên đăng nhập", key="login_user")
         password = st.text_input("Mật khẩu", type="password", placeholder="Nhập mật khẩu", key="login_pwd")
         if st.button("ĐĂNG NHẬP", type="primary", use_container_width=True, key="btn_login"):
             ok, msg, user_data = authenticate(username, password)
@@ -341,7 +304,6 @@ with st.sidebar:
     )
     st.divider()
 
-    role_pill = "status-admin" if is_admin else "status-ok"
     role_text = "👑 ADMIN" if is_admin else "👤 USER"
     st.markdown(
         f"""
@@ -349,8 +311,6 @@ with st.sidebar:
             <b>{user['username']}</b><br>
             <span>{role_text} · {len(user.get('permissions', [])) if not is_admin else 'all'} quyền</span>
         </div>
-        <span class="status-pill {role_pill}">{role_text}</span>
-        <span class="status-pill status-live">🔒 Authenticated</span>
         """,
         unsafe_allow_html=True,
     )
@@ -381,11 +341,8 @@ with st.sidebar:
 st.markdown(
     f"""
     <div class="app-header">
-        <h1>🖼️ Media Tool Pro VIP Pro — Secure Edition</h1>
-        <p>
-            Xin chào <b style='color:#fde68a'>{user['username']}</b>! 
-            Hệ thống bảo mật đa lớp · Phân quyền theo từng tab · Tự sync GitHub chống mất data.
-        </p>
+        <h1>🖼️ Workspace — {user['username']}</h1>
+        <p>Hệ thống bảo mật đa lớp · Phân quyền theo từng tab · Tự sync GitHub chống mất data.</p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -527,10 +484,10 @@ for tab, key in zip(tabs, tab_keys):
         elif key == "guide":
             st.markdown(
                 "<div class='guide-box'>"
-                "<div style='font-size:1.05rem;font-weight:900;color:#1e1b4b;margin-bottom:8px'>"
+                "<div style='font-size:1.05rem;font-weight:900;color:#fff;margin-bottom:8px'>"
                 "📌 Media Tool Pro VIP Pro — Hướng dẫn Vận hành"
                 "</div>"
-                "<b>1.</b> Đăng ký tài khoản → Admin <b>ducpro</b> duyệt và cấp quyền tab. <br>"
+                "<b>1.</b> Đăng ký tài khoản → Admin duyệt và cấp quyền tab. <br>"
                 "<b>2.</b> Mỗi tab tương ứng 1 quyền riêng biệt. <br>"
                 "<b>3.</b> Tab Web TGDD: dán link → quét → chọn màu → resize. <br>"
                 "<b>4.</b> Tab Studio Scale: chỉnh riêng từng ảnh sau batch → render lại. <br>"
