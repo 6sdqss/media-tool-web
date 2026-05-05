@@ -557,7 +557,7 @@ for tab, key in zip(tabs, tab_keys):
                 st.markdown(
                     """
 **Bước 1 — Tạo Personal Access Token GitHub:**
-1. Vào https://github.com/settings/tokens?type=beta
+1. Vào [https://github.com/settings/tokens?type=beta](https://github.com/settings/tokens?type=beta)
 2. Generate new token (Fine-grained): chọn repo của bạn, quyền **Contents: Read and write**.
 3. Copy token (chỉ xem được 1 lần).
 
