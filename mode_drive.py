@@ -1,37 +1,45 @@
 """
-mode_drive.py — Tab Google Drive
+mode_drive.py — Tab Google Drive v9.0
+─────────────────────────────────────────────────────────
 Tải ảnh từ Google Drive (folder/file) → Resize multi-size → ZIP.
-Hỗ trợ: API tải trực tiếp, gdown fallback, custom naming, upload đích.
-Cải tiến: Tích hợp Workspace bền vững để có thể tiếp tục chỉnh sửa ở tab Studio Scale.
+Hỗ trợ: Drive API trực tiếp, gdown fallback, custom naming, upload đích.
+Tích hợp Workspace bền vững cho phép chỉnh tay ở tab Studio Scale.
 """
 
-import streamlit as st
+from __future__ import annotations
+
 import time
 import shutil
 from pathlib import Path
 
+import streamlit as st
+
 from utils import (
+    EXPORT_FORMATS,
+    IMAGE_EXTENSIONS,
+    add_to_history,
+    api_download_folder_images,
+    batch_rename_with_template,
+    build_preview_image,
+    check_pause_cancel_state,
     clean_name,
+    create_batch_workspace,
+    create_drive_folder,
+    download_direct_file,
     extract_drive_id_and_type,
     get_drive_name,
-    download_direct_file,
-    resize_to_multi_sizes,
-    create_drive_folder,
-    upload_to_drive,
-    check_pause_cancel_state,
+    get_size_label,
+    make_zip,
+    open_zip_for_download,
+    readable_file_size,
+    render_batch_kpis,
     render_control_buttons,
-    api_download_folder_images,
+    resize_to_multi_sizes,
+    safe_image_meta,
+    save_json,
     show_preview,
     show_processing_summary,
-    batch_rename_with_template,
-    add_to_history,
-    get_size_label,
-    IMAGE_EXTENSIONS,
-    create_batch_workspace,
-    safe_image_meta,
-    build_preview_image,
-    save_json,
-    readable_file_size
+    upload_to_drive,
 )
 
 
@@ -43,42 +51,59 @@ def run_mode_drive(cfg: dict, drive_service):
     template = cfg["template"]
     rename_enabled = cfg["rename"]
 
-    st.markdown('<div class="sec-title">📥 NGUỒN ẢNH TỪ GOOGLE DRIVE</div>', unsafe_allow_html=True)
+    st.markdown(
+        "<div class='guide-box'>"
+        "💡 <b>Workflow Drive:</b> dán link Drive (folder/file) → tự tải → resize → ZIP. "
+        "Có thể upload ngược lên Drive đích."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<div class="sec-title">📥 Nguồn ảnh từ Drive</div>', unsafe_allow_html=True)
     links_text = st.text_area(
-        "Dán link Google Drive (mỗi dòng 1 link):",
-        height=100,
-        placeholder="https://drive.google.com/drive/folders/ABC123...\nhttps://drive.google.com/file/d/XYZ789...",
+        "Links",
+        height=80,
+        placeholder=(
+            "https://drive.google.com/drive/folders/ABC123...\n"
+            "https://drive.google.com/file/d/XYZ789..."
+        ),
+        label_visibility="collapsed",
         key="drive_links_input",
     )
 
     custom_names_text = ""
     if rename_enabled:
-        st.markdown('<div class="sec-title">✏️ TÊN TÙY CHỈNH CHO THƯ MỤC XUẤT (Tương ứng theo từng link)</div>', unsafe_allow_html=True)
-        st.caption("Mẹo: Dòng trống = tự động lấy tên gốc của Google Drive")
+        st.markdown(
+            '<div class="sec-title">✏️ Tên xuất tùy chỉnh (tương ứng từng link)</div>',
+            unsafe_allow_html=True
+        )
+        st.caption("Dòng trống = dùng tên gốc của Google Drive.")
         custom_names_text = st.text_area(
-            "Tên tùy chỉnh:",
-            height=100,
+            "Custom names",
+            height=80,
             placeholder="Samsung_Galaxy_S25_Ultra\niPhone_16_Pro_Max",
+            label_visibility="collapsed",
             key="drive_custom_names",
         )
 
-    st.markdown('<div class="sec-title">📤 ĐÍCH UPLOAD DRIVE (Tùy chọn tải ngược lên)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec-title">📤 Đích upload Drive (tùy chọn)</div>', unsafe_allow_html=True)
     upload_link = st.text_input(
-        "Link thư mục Drive đích:",
-        placeholder="Bỏ trống nếu chỉ cần tải ZIP về máy tính",
+        "Link folder Drive đích",
+        placeholder="Bỏ trống nếu chỉ cần ZIP về máy",
+        label_visibility="collapsed",
         key="drive_upload_dest",
     )
 
     if upload_link and not drive_service:
-        st.warning("⚠️ Hệ thống chưa kết nối Drive API — Không thể thực hiện tính năng upload ngược lên Drive đích.")
+        st.warning("⚠️ Chưa kết nối Drive API — Không thể upload ngược.")
     if not drive_service:
-        st.info("ℹ️ Không tìm thấy Service Account — Hệ thống sẽ tự động chuyển qua gdown fallback (có thể bị giới hạn nếu quá tải).")
+        st.info("ℹ️ Không có Service Account — Sẽ dùng gdown fallback (có thể bị giới hạn).")
 
     if "drive_zip_data" not in st.session_state:
         st.session_state.drive_zip_data = None
 
-    st.write("")
-    if st.button("BẮT ĐẦU TẢI VÀ XỬ LÝ", type="primary", use_container_width=True, key="btn_drive_start"):
+    if st.button("🚀 BẮT ĐẦU TẢI & XỬ LÝ", type="primary",
+                 use_container_width=True, key="btn_drive_start"):
         st.session_state.download_status = "running"
         st.session_state.drive_zip_data = None
 
@@ -87,14 +112,13 @@ def run_mode_drive(cfg: dict, drive_service):
         target_folder_id, _ = extract_drive_id_and_type(upload_link) if upload_link else (None, None)
 
         if not links:
-            st.error("⚠️ Vui lòng dán ít nhất 1 link Google Drive hợp lệ!")
+            st.error("⚠️ Vui lòng dán ít nhất 1 link Drive.")
             st.session_state.download_status = "idle"
             return
 
         render_control_buttons()
         start_time = time.time()
 
-        # Thay vì TemporaryDirectory, tạo workspace lưu giữ lâu dài cho phép dùng ở Studio Scale
         workspace = create_batch_workspace("drive")
         temp_path = Path(workspace["root"])
         raw_dir = Path(workspace["raw_dir"])
@@ -109,7 +133,6 @@ def run_mode_drive(cfg: dict, drive_service):
         successful_count = 0
         total_links = len(links)
         manifest_items: list[dict] = []
-        all_output_files = []
 
         for link_index, url in enumerate(links):
             if not check_pause_cancel_state():
@@ -118,7 +141,7 @@ def run_mode_drive(cfg: dict, drive_service):
             file_id, kind = extract_drive_id_and_type(url)
             if not file_id:
                 with log_container:
-                    st.warning(f"⚠️ Link không đúng định dạng Drive: {url}")
+                    st.warning(f"⚠️ Link sai định dạng: {url}")
                 continue
 
             auto_name = get_drive_name(file_id, kind, service=drive_service)
@@ -130,7 +153,7 @@ def run_mode_drive(cfg: dict, drive_service):
             current_raw = raw_dir / folder_name
             current_raw.mkdir(parents=True, exist_ok=True)
 
-            status_placeholder.info(f"📥 [{link_index + 1}/{total_links}] Đang nạp: **{folder_name}**")
+            status_placeholder.info(f"📥 [{link_index + 1}/{total_links}] {folder_name}")
 
             try:
                 if kind == "folder":
@@ -138,10 +161,10 @@ def run_mode_drive(cfg: dict, drive_service):
                         count = api_download_folder_images(drive_service, file_id, current_raw, max_files=None)
                         if count == 0:
                             with log_container:
-                                st.warning(f"⚠️ Thư mục '{folder_name}' rỗng hoặc bị khóa quyền truy cập.")
+                                st.warning(f"⚠️ '{folder_name}' rỗng/khóa quyền.")
                             continue
                         with log_container:
-                            st.success(f"✅ Tải thành công {count} ảnh từ thư mục '{folder_name}' bằng API.")
+                            st.success(f"✅ Tải {count} ảnh từ '{folder_name}' (API).")
                     else:
                         try:
                             import gdown
@@ -149,7 +172,12 @@ def run_mode_drive(cfg: dict, drive_service):
                             success = False
                             for use_cookies in [False, True]:
                                 try:
-                                    gdown.download_folder(url=download_url, output=str(current_raw), quiet=True, use_cookies=use_cookies)
+                                    gdown.download_folder(
+                                        url=download_url,
+                                        output=str(current_raw),
+                                        quiet=True,
+                                        use_cookies=use_cookies,
+                                    )
                                     if any(current_raw.iterdir()):
                                         success = True
                                         break
@@ -157,11 +185,11 @@ def run_mode_drive(cfg: dict, drive_service):
                                     time.sleep(2)
                             if not success:
                                 with log_container:
-                                    st.warning(f"⚠️ '{folder_name}' — Bị hệ thống Google chặn download fallback.")
+                                    st.warning(f"⚠️ '{folder_name}' bị Google chặn fallback.")
                                 continue
                         except ImportError:
                             with log_container:
-                                st.error("❌ Môi trường đang thiếu thư viện gdown và Google API Service.")
+                                st.error("❌ Thiếu gdown và Google API.")
                             continue
 
                     raw_images = [
@@ -171,9 +199,9 @@ def run_mode_drive(cfg: dict, drive_service):
                     for img_path in raw_images:
                         resize_to_multi_sizes(
                             img_path, final_dir, folder_name, img_path.stem,
-                            sizes, scale_pct, quality, export_format, huge_image_mode=cfg.get("huge_image_mode", True)
+                            sizes, scale_pct, quality, export_format,
+                            huge_image_mode=cfg.get("huge_image_mode", True),
                         )
-                        # Trích xuất Manifest cho phép Studio Scale điều chỉnh lại
                         meta_info = safe_image_meta(img_path)
                         preview_path = build_preview_image(img_path, preview_dir)
                         manifest_items.append({
@@ -205,7 +233,8 @@ def run_mode_drive(cfg: dict, drive_service):
                     if file_path and file_path.exists() and file_path.stat().st_size > 0:
                         resize_to_multi_sizes(
                             file_path, final_dir, folder_name, file_path.stem,
-                            sizes, scale_pct, quality, export_format, huge_image_mode=cfg.get("huge_image_mode", True)
+                            sizes, scale_pct, quality, export_format,
+                            huge_image_mode=cfg.get("huge_image_mode", True),
                         )
                         meta_info = safe_image_meta(file_path)
                         preview_path = build_preview_image(file_path, preview_dir)
@@ -226,7 +255,7 @@ def run_mode_drive(cfg: dict, drive_service):
                             st.success(f"✅ Đã xử lý '{folder_name}'")
                     else:
                         with log_container:
-                            st.warning(f"⚠️ Thất bại khi tải file '{folder_name}'.")
+                            st.warning(f"⚠️ Tải file '{folder_name}' thất bại.")
                         continue
 
                 successful_count += 1
@@ -234,15 +263,16 @@ def run_mode_drive(cfg: dict, drive_service):
                 if target_folder_id and drive_service and check_pause_cancel_state():
                     try:
                         new_folder_id = create_drive_folder(drive_service, folder_name, target_folder_id)
-                        for img in final_dir.rglob(f"*{EXPORT_FORMATS.get(export_format, {}).get('ext', '.jpg')}"):
+                        ext = EXPORT_FORMATS.get(export_format, {}).get("ext", ".jpg")
+                        for img in final_dir.rglob(f"*{ext}"):
                             upload_to_drive(drive_service, img, new_folder_id)
                     except Exception as exc:
                         with log_container:
-                            st.warning(f"⚠️ Upload lên Drive đích '{folder_name}' bị lỗi: {exc}")
+                            st.warning(f"⚠️ Upload '{folder_name}' lỗi: {exc}")
 
             except Exception as exc:
                 with log_container:
-                    st.warning(f"⚠️ Xảy ra sự cố bất thường '{folder_name}': {exc}")
+                    st.warning(f"⚠️ Sự cố '{folder_name}': {exc}")
                 continue
 
             progress_bar.progress((link_index + 1) / total_links)
@@ -252,9 +282,14 @@ def run_mode_drive(cfg: dict, drive_service):
 
         if successful_count > 0 or st.session_state.download_status == "cancelled":
             if st.session_state.download_status == "cancelled":
-                status_placeholder.warning(f"🚫 Tác vụ bị hủy giữa chừng — Vẫn có thể tải {len(all_output_files)} ảnh đã xử lý thành công.")
+                status_placeholder.warning(
+                    f"🚫 Đã hủy — {len(all_output_files)} ảnh đã xử lý xong."
+                )
             else:
-                status_placeholder.success(f"🎉 Hoàn tất {successful_count}/{total_links} links — Tổng cộng {len(all_output_files)} ảnh!")
+                status_placeholder.success(
+                    f"🎉 Hoàn tất {successful_count}/{total_links} link — "
+                    f"{len(all_output_files)} ảnh!"
+                )
 
             batch_rename_with_template(final_dir, template)
             show_preview(final_dir)
@@ -265,7 +300,6 @@ def run_mode_drive(cfg: dict, drive_service):
             if zip_path.exists():
                 st.session_state.drive_zip_data = zip_path.read_bytes()
 
-            # Lưu Workspace Meta để sử dụng cho Tab Studio Scale
             batch_meta = {
                 "batch_id": workspace["batch_id"],
                 "root": str(temp_path),
@@ -275,6 +309,7 @@ def run_mode_drive(cfg: dict, drive_service):
                 "zip_path": str(zip_path),
                 "zip_size": readable_file_size(zip_path.stat().st_size if zip_path.exists() else 0),
             }
+            render_batch_kpis(batch_meta)
             save_json(manifest_items, meta_dir / "manifest.json")
             save_json(batch_meta, meta_dir / "meta.json")
             st.session_state.last_batch_manifest = manifest_items
@@ -284,15 +319,16 @@ def run_mode_drive(cfg: dict, drive_service):
             size_label = " + ".join([get_size_label(w, h, m) for w, h, m in sizes])
             detail_text = ", ".join([url.split("/")[-1][:15] for url in links[:3]])
             add_to_history("Drive", detail_text, len(all_output_files), size_label, duration)
-            st.info("💡 Mẹo: Nếu ảnh xuất ra bị lệch khung, bạn có thể sang tab 'Studio Scale' để căn chỉnh riêng lẻ và render lại ngay lập tức!")
+            st.info("💡 Sang tab 'Studio' để chỉnh từng ảnh nếu cần.")
         else:
-            status_placeholder.error("❌ Hệ thống không nhận dạng được bất kỳ file ảnh nào hợp lệ để xử lý.")
+            status_placeholder.error("❌ Không nhận được file ảnh hợp lệ.")
 
         st.session_state.download_status = "idle"
 
     if st.session_state.get("drive_zip_data"):
+        st.success("✅ ZIP Drive đã sẵn sàng!")
         st.download_button(
-            label="📥 TẢI TOÀN BỘ FILE ZIP",
+            label="📥 TẢI TOÀN BỘ ZIP",
             data=st.session_state.drive_zip_data,
             file_name="Drive_Done.zip",
             mime="application/zip",
