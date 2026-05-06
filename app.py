@@ -1,5 +1,6 @@
+# -*- coding: utf-8 -*-
 """
-app.py — Media Tool Pro VIP Pro v9.0
+app.py - Media Tool Pro VIP Pro v9.0
 ─────────────────────────────────────────────────────────
 - Auth + Admin Panel + GitHub Sync
 - Phân quyền tab theo user
@@ -63,7 +64,7 @@ except Exception as e:
 # ══════════════════════════════════════════════════════════════
 st.set_page_config(
     page_title="Media Tool Pro VIP",
-    page_icon="🖼️",
+    page_icon="🎨",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -611,6 +612,8 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(input[type="checkbox"]:check
     border-color: rgba(251, 191, 36, 0.55) !important;
     box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.2);
 }
+</style>
+""", unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -628,7 +631,7 @@ def render_login_screen():
         <div class="login-card">
             <div class="login-brand">&#128444;</div>
             <h1 class="login-title">Media Tool Pro VIP</h1>
-            <p class="login-sub">v9.0 · Secure Workspace</p>
+            <p class="login-sub">v9.0 &middot; Secure Workspace</p>
         </div>
     """, unsafe_allow_html=True)
 
@@ -683,7 +686,7 @@ with st.sidebar:
         <div class="sb-logo-wrap">
             <div class="sb-logo-icon">&#128444;</div>
             <div class="sb-logo-title">Media Tool Pro VIP</div>
-            <div class="sb-logo-sub">v9.0 · GitHub Sync</div>
+            <div class="sb-logo-sub">v9.0 &middot; GitHub Sync</div>
         </div>
     """, unsafe_allow_html=True)
     st.divider()
@@ -693,7 +696,7 @@ with st.sidebar:
     st.markdown(f"""
         <div class="user-chip">
             <b>{user['username']}</b><br>
-            <span>{role_text} · {perm_text}</span>
+            <span>{role_text} &middot; {perm_text}</span>
         </div>
     """, unsafe_allow_html=True)
 
@@ -723,8 +726,8 @@ with st.sidebar:
 # ══════════════════════════════════════════════════════════════
 st.markdown(f"""
     <div class="app-header">
-        <h1>🖼️ Workspace · {user['username']}</h1>
-        <p>Phân quyền theo từng tab · Auto-sync GitHub · Mobile-ready</p>
+        <h1>&#128444; Workspace &middot; {user['username']}</h1>
+        <p>Phân quyền theo từng tab &middot; Auto-sync GitHub &middot; Mobile-ready</p>
     </div>
 """, unsafe_allow_html=True)
 
