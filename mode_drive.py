@@ -1,15 +1,14 @@
 """
-mode_drive.py — Tab Google Drive v9.0
+mode_drive.py — Tab Google Drive v9.3
 ─────────────────────────────────────────────────────────
-Tải ảnh từ Google Drive (folder/file) → Resize multi-size → ZIP.
-Hỗ trợ: Drive API trực tiếp, gdown fallback, custom naming, upload đích.
-Tích hợp Workspace bền vững cho phép chỉnh tay ở tab Studio Scale.
+v9.3 (giữ NGUYÊN logic Drive API/gdown/upload):
+- THÊM `seq_in_folder` vào manifest item → Studio map đúng ảnh sau rename.
+- Lưu zip_path ổn định trên đĩa (thay vì chỉ bytes) để Studio dùng "ZIP GỐC".
 """
 
 from __future__ import annotations
 
 import time
-import shutil
 from pathlib import Path
 
 import streamlit as st
@@ -62,7 +61,7 @@ def run_mode_drive(cfg: dict, drive_service):
     st.markdown('<div class="sec-title">📥 Nguồn ảnh từ Drive</div>', unsafe_allow_html=True)
     links_text = st.text_area(
         "Links",
-        height=80,
+        height=85,
         placeholder=(
             "https://drive.google.com/drive/folders/ABC123...\n"
             "https://drive.google.com/file/d/XYZ789..."
@@ -75,12 +74,12 @@ def run_mode_drive(cfg: dict, drive_service):
     if rename_enabled:
         st.markdown(
             '<div class="sec-title">✏️ Tên xuất tùy chỉnh (tương ứng từng link)</div>',
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
         st.caption("Dòng trống = dùng tên gốc của Google Drive.")
         custom_names_text = st.text_area(
             "Custom names",
-            height=80,
+            height=85,
             placeholder="Samsung_Galaxy_S25_Ultra\niPhone_16_Pro_Max",
             label_visibility="collapsed",
             key="drive_custom_names",
@@ -101,11 +100,14 @@ def run_mode_drive(cfg: dict, drive_service):
 
     if "drive_zip_data" not in st.session_state:
         st.session_state.drive_zip_data = None
+    if "drive_zip_path" not in st.session_state:
+        st.session_state.drive_zip_path = ""
 
     if st.button("🚀 BẮT ĐẦU TẢI & XỬ LÝ", type="primary",
                  use_container_width=True, key="btn_drive_start"):
         st.session_state.download_status = "running"
         st.session_state.drive_zip_data = None
+        st.session_state.drive_zip_path = ""
 
         links = [line.strip() for line in links_text.splitlines() if line.strip()]
         custom_names = [name.strip() for name in custom_names_text.splitlines()] if rename_enabled else []
@@ -133,6 +135,11 @@ def run_mode_drive(cfg: dict, drive_service):
         successful_count = 0
         total_links = len(links)
         manifest_items: list[dict] = []
+        folder_counter: dict[str, int] = {}
+
+        def _bump_seq(folder_key: str) -> int:
+            folder_counter[folder_key] = folder_counter.get(folder_key, 0) + 1
+            return folder_counter[folder_key]
 
         for link_index, url in enumerate(links):
             if not check_pause_cancel_state():
@@ -158,7 +165,9 @@ def run_mode_drive(cfg: dict, drive_service):
             try:
                 if kind == "folder":
                     if drive_service:
-                        count = api_download_folder_images(drive_service, file_id, current_raw, max_files=None)
+                        count = api_download_folder_images(
+                            drive_service, file_id, current_raw, max_files=None
+                        )
                         if count == 0:
                             with log_container:
                                 st.warning(f"⚠️ '{folder_name}' rỗng/khóa quyền.")
@@ -192,10 +201,10 @@ def run_mode_drive(cfg: dict, drive_service):
                                 st.error("❌ Thiếu gdown và Google API.")
                             continue
 
-                    raw_images = [
+                    raw_images = sorted([
                         f for f in current_raw.rglob("*.*")
                         if f.suffix.lower() in IMAGE_EXTENSIONS and not f.name.startswith("._")
-                    ]
+                    ])
                     for img_path in raw_images:
                         resize_to_multi_sizes(
                             img_path, final_dir, folder_name, img_path.stem,
@@ -204,11 +213,13 @@ def run_mode_drive(cfg: dict, drive_service):
                         )
                         meta_info = safe_image_meta(img_path)
                         preview_path = build_preview_image(img_path, preview_dir)
+                        seq = _bump_seq(folder_name)
                         manifest_items.append({
-                            "id": clean_name(f"drv_{folder_name}_{img_path.stem}"),
+                            "id": clean_name(f"drv_{folder_name}_{img_path.stem}_{seq}"),
                             "product": folder_name,
                             "color": "Mặc định",
                             "folder_name": folder_name,
+                            "seq_in_folder": seq,
                             "source_path": str(img_path),
                             "preview_path": str(preview_path),
                             "original_name": img_path.stem,
@@ -238,11 +249,13 @@ def run_mode_drive(cfg: dict, drive_service):
                         )
                         meta_info = safe_image_meta(file_path)
                         preview_path = build_preview_image(file_path, preview_dir)
+                        seq = _bump_seq(folder_name)
                         manifest_items.append({
-                            "id": clean_name(f"drv_{folder_name}_{file_path.stem}"),
+                            "id": clean_name(f"drv_{folder_name}_{file_path.stem}_{seq}"),
                             "product": folder_name,
                             "color": "Mặc định",
                             "folder_name": folder_name,
+                            "seq_in_folder": seq,
                             "source_path": str(file_path),
                             "preview_path": str(preview_path),
                             "original_name": file_path.stem,
@@ -296,9 +309,17 @@ def run_mode_drive(cfg: dict, drive_service):
             show_processing_summary(final_dir, sizes, duration)
 
             zip_path = temp_path / f"Drive_Done_{workspace['batch_id']}.zip"
-            shutil.make_archive(str(zip_path.with_suffix("")), "zip", final_dir)
-            if zip_path.exists():
-                st.session_state.drive_zip_data = zip_path.read_bytes()
+            try:
+                make_zip(final_dir, zip_path, compresslevel=int(cfg.get("zip_compression", 6)))
+            except Exception:
+                pass
+
+            if zip_path.exists() and zip_path.stat().st_size > 100:
+                st.session_state.drive_zip_path = str(zip_path)
+                try:
+                    st.session_state.drive_zip_data = zip_path.read_bytes()
+                except Exception:
+                    st.session_state.drive_zip_data = None
 
             batch_meta = {
                 "batch_id": workspace["batch_id"],
@@ -317,6 +338,7 @@ def run_mode_drive(cfg: dict, drive_service):
             st.session_state.last_batch_cfg = dict(cfg)
             st.session_state.last_batch_meta = batch_meta
             st.session_state.pop("_adjusted_root", None)
+            st.session_state.pop("_studio_thumb_b64_cache", None)
             st.session_state["_goto_studio"] = True
 
             size_label = " + ".join([get_size_label(w, h, m) for w, h, m in sizes])
@@ -328,7 +350,25 @@ def run_mode_drive(cfg: dict, drive_service):
 
         st.session_state.download_status = "idle"
 
-    if st.session_state.get("drive_zip_data"):
+    # ── Tải ZIP — ưu tiên đọc từ disk (path), fallback bytes ──
+    zip_file_handle = open_zip_for_download(st.session_state.get("drive_zip_path", ""))
+    if zip_file_handle:
+        try:
+            zp = Path(st.session_state.drive_zip_path)
+            size_text = readable_file_size(zp.stat().st_size)
+            st.success(f"✅ ZIP Drive đã sẵn sàng · {size_text}")
+            st.download_button(
+                label="📥 TẢI TOÀN BỘ ZIP",
+                data=zip_file_handle,
+                file_name=zp.name,
+                mime="application/zip",
+                type="primary",
+                use_container_width=True,
+                key="download_drive_zip",
+            )
+        finally:
+            zip_file_handle.close()
+    elif st.session_state.get("drive_zip_data"):
         st.success("✅ ZIP Drive đã sẵn sàng!")
         st.download_button(
             label="📥 TẢI TOÀN BỘ ZIP",
@@ -337,5 +377,5 @@ def run_mode_drive(cfg: dict, drive_service):
             mime="application/zip",
             type="primary",
             use_container_width=True,
-            key="download_drive_zip",
+            key="download_drive_zip_bytes",
         )
