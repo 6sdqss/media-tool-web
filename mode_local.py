@@ -261,6 +261,7 @@ def run_mode_local(cfg: dict):
             batch_meta = {
                 "batch_id": workspace["batch_id"],
                 "root": str(temp_path),
+                "final_dir": str(final_dir),
                 "source_name": "Local ZIP",
                 "source_count": len(manifest_items),
                 "output_count": len(all_output_files),
@@ -276,12 +277,16 @@ def run_mode_local(cfg: dict):
             st.session_state.last_batch_manifest = manifest_items
             st.session_state.last_batch_cfg = dict(cfg)
             st.session_state.last_batch_meta = batch_meta
+            # Xóa ADJUSTED cũ (nếu có) để Studio không trộn nhầm batch trước
+            st.session_state.pop("_adjusted_root", None)
+            # Báo app.py auto-switch sang Studio
+            st.session_state["_goto_studio"] = True
 
             size_label = " + ".join([get_size_label(w, h, m) for w, h, m in sizes])
             file_names = ", ".join([uf.name for uf in uploaded_files[:3]])
             add_to_history("Local", file_names, len(all_output_files), size_label, duration)
 
-            st.info("💡 Sang tab 'Studio' để chỉnh riêng từng ảnh nếu cần.")
+            st.success("🎯 Render xong! Đang chuyển sang **tab Studio** để bạn xem & chỉnh ảnh...")
         else:
             status_placeholder.error("❌ Không có file output (ảnh có thể bị lỗi cấu trúc).")
 
