@@ -428,20 +428,32 @@ def check_pause_cancel_state() -> bool:
 
 
 def render_control_buttons():
-    """Hiển thị 3 nút điều khiển — phong cách compact."""
+    """Hiển thị 3 nút điều khiển — phong cách compact.
+    
+    FIX v9.4: Dùng counter ổn định trong session_state thay vì time.time_ns()
+    để tránh lỗi check_session_state_rules của Streamlit khi re-render.
+    """
+    # Tạo key ổn định dựa trên counter — tăng 1 lần duy nhất khi widget lần đầu render
+    if "_ctrl_btn_epoch" not in st.session_state:
+        st.session_state["_ctrl_btn_epoch"] = 0
+    epoch = st.session_state["_ctrl_btn_epoch"]
+
     st.markdown('<div class="ctrl-row">', unsafe_allow_html=True)
     c1, c2, c3 = st.columns(3)
     with c1:
-        if st.button("⏸ Tạm dừng", use_container_width=True, key=f"pause_{time.time_ns()}"):
+        if st.button("⏸ Tạm dừng", use_container_width=True, key=f"ctrl_pause_{epoch}"):
             st.session_state.download_status = "paused"
+            st.session_state["_ctrl_btn_epoch"] = epoch + 1
             st.rerun()
     with c2:
-        if st.button("▶ Tiếp tục", use_container_width=True, key=f"resume_{time.time_ns()}"):
+        if st.button("▶ Tiếp tục", use_container_width=True, key=f"ctrl_resume_{epoch}"):
             st.session_state.download_status = "running"
+            st.session_state["_ctrl_btn_epoch"] = epoch + 1
             st.rerun()
     with c3:
-        if st.button("⏹ Hủy bỏ", type="primary", use_container_width=True, key=f"cancel_{time.time_ns()}"):
+        if st.button("⏹ Hủy bỏ", type="primary", use_container_width=True, key=f"ctrl_cancel_{epoch}"):
             st.session_state.download_status = "cancelled"
+            st.session_state["_ctrl_btn_epoch"] = epoch + 1
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
