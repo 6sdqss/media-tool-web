@@ -33,8 +33,6 @@ from utils import (
     resize_to_multi_sizes,
     safe_image_meta,
     save_json,
-    show_preview,
-    show_processing_summary,
 )
 
 
@@ -218,28 +216,49 @@ def run_mode_local(cfg: dict):
                 return (file_path.name, False, str(exc), None)
 
         max_workers = min(8, max(1, int(cfg.get("max_workers", 4))))
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_map = {executor.submit(resize_one_image, fp): fp for fp in valid_images}
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_map = {executor.submit(resize_one_image, fp): fp for fp in valid_images}
 
-            for future in concurrent.futures.as_completed(future_map):
-                if not check_pause_cancel_state():
-                    executor.shutdown(wait=False, cancel_futures=True)
-                    was_stopped = True
-                    break
+                for future in concurrent.futures.as_completed(future_map):
+                    if not check_pause_cancel_state():
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        was_stopped = True
+                        break
 
-                file_name, success, error_msg, item_manifest = future.result()
-                processed_count += 1
+                    try:
+                        file_name, success, error_msg, item_manifest = future.result(timeout=120)
+                    except concurrent.futures.TimeoutError:
+                        processed_count += 1
+                        log("⚠️ Timeout — bỏ qua 1 ảnh")
+                        progress_bar.progress(processed_count / total_images)
+                        continue
+                    except Exception as exc:
+                        processed_count += 1
+                        log(f"⚠️ Lỗi thread: {exc}")
+                        progress_bar.progress(processed_count / total_images)
+                        continue
 
-                if success and item_manifest:
-                    manifest_items.append(item_manifest)
+                    processed_count += 1
 
-                status_icon = "✅" if success else "⚠️"
-                log_line = f"{status_icon} {file_name}"
-                if error_msg:
-                    log_line += f" — {error_msg}"
-                log(log_line)
+                    if success and item_manifest:
+                        manifest_items.append(item_manifest)
 
-                progress_bar.progress(processed_count / total_images)
+                    status_icon = "✅" if success else "⚠️"
+                    log_line = f"{status_icon} {file_name}"
+                    if error_msg:
+                        log_line += f" — {error_msg}"
+                    log(log_line)
+
+                    progress_bar.progress(processed_count / total_images)
+        except MemoryError:
+            st.error("❌ Hết bộ nhớ RAM — giảm số luồng xử lý hoặc chọn file ZIP nhỏ hơn.")
+            st.session_state.download_status = "idle"
+            return
+        except Exception as exc:
+            st.error(f"❌ Lỗi nghiêm trọng khi resize: {exc}")
+            st.session_state.download_status = "idle"
+            return
 
         if was_stopped:
             status_placeholder.warning(f"🚫 Đã hủy — {processed_count}/{total_images} ảnh.")
@@ -256,8 +275,7 @@ def run_mode_local(cfg: dict):
             if renamed:
                 log(f"✏️ Đổi tên {renamed} ảnh")
 
-            show_preview(final_dir)
-            show_processing_summary(final_dir, sizes, duration)
+            # Preview ở tab đã bị tắt để giảm tải RAM — xem ảnh trong Studio
 
             zip_output_path = temp_path / f"Local_Done_{workspace['batch_id']}.zip"
             make_zip(final_dir, zip_output_path,
