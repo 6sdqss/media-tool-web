@@ -5,27 +5,27 @@ Nâng cấp v9.3 (giữ NGUYÊN logic cũ, CHỈ MỞ RỘNG):
 - LIVE PREVIEW: kéo slider Scale/X/Y → ảnh GIÃN/DỊCH ngay tức thì bằng
   CSS transform (scale + translate) trên thumbnail base64 — không phải
   chờ render.
-- Hiển thị ĐÚNG ảnh đã render (FINAL) hoặc đã sửa (ADJUSTED) — map qua
-  seq_in_folder để chính xác sau khi đã đổi tên template.
 - Bố cục TO RÕ: chữ ≥14px, ảnh max-height 500px, padding rộng.
 - Dual ZIP: TẢI ZIP GỐC (FINAL ngay sau render) + TẢI ZIP GỘP (đã sửa).
 - Banner "Vừa render xong" khi auto-switch.
-- Sau khi Render-lại trong Studio: tự reload để cập nhật.
+- FIX: Xử lý triệt để lỗi ghi đè ZIP gộp bằng cách tái cấu trúc exact_stem
+  trùng khớp 100% với file output từ template.
 """
 
 from __future__ import annotations
 
 import time
 import shutil
+import re
 from pathlib import Path
 
 import streamlit as st
 
 from utils import (
     add_to_history,
+    apply_name_template,
     build_live_preview_b64,
     estimate_default_scale_for_size,
-    find_rendered_image_for_item,
     get_size_label,
     make_zip,
     merge_final_with_adjusted,
@@ -42,7 +42,71 @@ _IMG_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
 
 # ═════════════════════════════════════════════════════════════════════
-# HELPERS
+# HELPERS CHO LOGIC RENAME CHÍNH XÁC
+# ═════════════════════════════════════════════════════════════════════
+def _get_exact_stem_for_item(item: dict, manifest: list, cfg: dict) -> str:
+    """Tái tạo chính xác tên file đã được đổi tên theo template để ghi đè đúng ảnh."""
+    folder_items = [it for it in manifest if it.get("folder_name") == item.get("folder_name")]
+    folder_items.sort(key=lambda x: str(x.get("original_name", "")))
+    
+    true_idx = 1
+    for i, it in enumerate(folder_items):
+        if it["id"] == item["id"]:
+            true_idx = i + 1
+            break
+            
+    folder_parts = [p for p in Path(item.get("folder_name", "")).parts if p]
+    product_part = folder_parts[0] if len(folder_parts) >= 1 else "image"
+    color_part = folder_parts[1] if len(folder_parts) >= 2 else ""
+    product_part = re.sub(r"\s+", "_", product_part).strip("_")
+    color_part = re.sub(r"\s+", "_", color_part).strip("_")
+
+    return apply_name_template(
+        cfg.get("template", "{name}_{nn}"),
+        name=product_part,
+        color=color_part,
+        index=true_idx,
+        original=item.get("original_name", "")
+    )
+
+
+def _get_exact_display_path(item: dict, exact_stem: str, final_dir: Path, adjusted_dir: Path, sizes_cfg: list):
+    """Tìm đúng file đã render (ADJUSTED hoặc FINAL) dựa trên exact_stem."""
+    is_multi = isinstance(sizes_cfg, list) and len(sizes_cfg) > 1
+    size_label = ""
+    if sizes_cfg:
+        try:
+            w, h, m = sizes_cfg[0]
+            size_label = get_size_label(w, h, m)
+        except Exception:
+            pass
+
+    folder_name = item.get("folder_name", "")
+    
+    # Check ADJUSTED first
+    if adjusted_dir and adjusted_dir.exists():
+        check_adj = adjusted_dir / size_label / folder_name if is_multi and size_label else adjusted_dir / folder_name
+        if check_adj.exists():
+            for ext in _IMG_EXT:
+                p = check_adj / f"{exact_stem}{ext}"
+                if p.exists() and p.stat().st_size > 0:
+                    return str(p), "adjusted"
+                    
+    # Check FINAL
+    if final_dir and final_dir.exists():
+        check_fin = final_dir / size_label / folder_name if is_multi and size_label else final_dir / folder_name
+        if check_fin.exists():
+            for ext in _IMG_EXT:
+                p = check_fin / f"{exact_stem}{ext}"
+                if p.exists() and p.stat().st_size > 0:
+                    return str(p), "rendered"
+                    
+    fallback = item.get("preview_path") or item.get("source_path") or ""
+    return fallback, "source"
+
+
+# ═════════════════════════════════════════════════════════════════════
+# CÁC HELPERS KHÁC
 # ═════════════════════════════════════════════════════════════════════
 def _filtered_items(items, keyword, product_filter, status_filter):
     keyword = (keyword or "").strip().lower()
@@ -316,8 +380,10 @@ def render_adjustment_studio():
 
         small_warn = _is_small_image(item)
 
-        display_path, display_status = find_rendered_image_for_item(
-            item, root, final_dir, adjusted_dir, sizes_cfg
+        # Trích xuất đúng tên ảnh đã render
+        exact_stem = _get_exact_stem_for_item(item, manifest, cfg)
+        display_path, display_status = _get_exact_display_path(
+            item, exact_stem, final_dir, adjusted_dir, sizes_cfg
         )
         image_b64 = build_live_preview_b64(display_path)
 
@@ -425,7 +491,7 @@ def render_adjustment_studio():
     cb1, cb2 = st.columns(2)
     with cb1:
         do_render = st.button(
-            "🎨 RENDER ẢNH ĐĐ CHỌN",
+            "🎨 RENDER ẢNH ĐÃ CHỌN",
             type="primary",
             use_container_width=True,
             key="adj_render_selected",
@@ -469,20 +535,15 @@ def render_adjustment_studio():
                 "offset_y": int(st.session_state.get(f"adj_y_{item['id']}", 0)),
             }
 
-            # LẤY CHÍNH XÁC TÊN FILE Ở THƯ MỤC FINAL ĐỂ GHI ĐÈ KHI GỘP
-            exact_stem = item.get("original_name", "image")
-            if final_dir and final_dir.exists():
-                # Chỉ lấy trong final_dir
-                f_path, _ = find_rendered_image_for_item(item, root, final_dir, None, cfg.get("sizes", []))
-                if f_path and Path(f_path).exists():
-                    exact_stem = Path(f_path).stem
+            # Khớp tên chính xác của file output thay vì bị nhầm do seq_in_folder
+            exact_stem = _get_exact_stem_for_item(item, manifest, cfg)
 
             try:
                 resize_to_multi_sizes(
                     Path(item["source_path"]),
                     adjusted_root,
                     item["folder_name"],
-                    exact_stem, # Fix: Sủ dụng đúng stem của final image
+                    exact_stem,
                     cfg.get("sizes", []),
                     scale_pct=int(cfg.get("default_scale_pct", 100)),
                     quality=int(cfg.get("quality", 95)),
@@ -493,8 +554,6 @@ def render_adjustment_studio():
             except Exception as exc:
                 status.warning(f"⚠️ Lỗi render {item.get('original_name', '-')}: {exc}")
             progress.progress(idx / max(len(selected_items), 1))
-
-        # Đã bị xóa hàm batch_rename_with_template ở đây để file không bị đánh số sai lệch
 
         duration = time.time() - start_time
         adjusted_files = [
