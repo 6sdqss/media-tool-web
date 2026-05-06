@@ -36,8 +36,6 @@ from utils import (
     resize_to_multi_sizes,
     safe_image_meta,
     save_json,
-    show_preview,
-    show_processing_summary,
     upload_to_drive,
 )
 
@@ -305,8 +303,7 @@ def run_mode_drive(cfg: dict, drive_service):
                 )
 
             batch_rename_with_template(final_dir, template)
-            show_preview(final_dir)
-            show_processing_summary(final_dir, sizes, duration)
+            # Preview ở tab đã bị tắt để giảm tải RAM — xem ảnh trong Studio
 
             zip_path = temp_path / f"Drive_Done_{workspace['batch_id']}.zip"
             try:
