@@ -1,11 +1,11 @@
 """
-mode_adjust.py — Studio Scale v9.4 (UI EXPORT & RENDER FIX)
+mode_adjust.py — Studio Scale v9.5 (2-LAYER CANVAS & EXPORT FIX)
 ─────────────────────────────────────────────────────────
-- FIX CRITICAL: Đọc trực tiếp thư mục FINAL để lấy tên file chính xác,
-  chống lỗi ghi đè lên nhau khi Render nhiều ảnh.
-- FEATURE: Nút Tải về (Download) riêng lẻ cho từng ảnh ngay trên giao diện.
-- UX/UI: Thiết kế lại toàn bộ khu vực "XUẤT FILE & TẢI VỀ" thành 3 bước
-  rõ ràng, trực quan, dễ hiểu.
+- FIX 2-LAYER PREVIEW: Áp dụng cơ chế 2 lớp (Canvas cố định + Product Layer).
+  Sử dụng trực tiếp source_path để làm Product Layer, giúp kéo to/nhỏ 
+  không làm biến dạng khung Canvas (1020x680). Phần thừa tự động ẩn (overflow: hidden).
+- Nút Download từng ảnh riêng lẻ.
+- Tái cấu trúc khu vực Xuất File (Render -> ZIP) rõ ràng.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ _SMALL_IMAGE_THRESHOLD = 600
 _IMG_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
 # ═════════════════════════════════════════════════════════════════════
-# CSS FIX
+# CSS TÙY CHỈNH
 # ═════════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
@@ -61,7 +61,7 @@ st.markdown("""
 
 
 # ═════════════════════════════════════════════════════════════════════
-# HELPERS - FIX LỖI TÊN FILE
+# HELPERS
 # ═════════════════════════════════════════════════════════════════════
 def _get_exact_stem_for_item(item: dict, final_dir: Path, sizes_cfg: list, cfg: dict) -> str:
     """Đọc thẳng vào thư mục FINAL để lấy ĐÚNG tên file đã xuất, chống ghi đè nhầm."""
@@ -85,7 +85,7 @@ def _get_exact_stem_for_item(item: dict, final_dir: Path, sizes_cfg: list, cfg: 
             if 1 <= seq <= len(files):
                 return files[seq - 1].stem
                 
-    # Fallback nếu không tìm thấy thư mục FINAL
+    # Fallback
     product_part = re.sub(r"\s+", "_", item.get("product", "image")).strip("_")
     color_part = re.sub(r"\s+", "_", item.get("color", "")).strip("_")
     return apply_name_template(
@@ -98,7 +98,7 @@ def _get_exact_stem_for_item(item: dict, final_dir: Path, sizes_cfg: list, cfg: 
 
 
 def _get_exact_display_path(item: dict, final_dir: Path, adjusted_dir: Path, sizes_cfg: list, cfg: dict):
-    """Tìm đúng đường dẫn hiển thị (Ưu tiên ADJUSTED -> FINAL -> Source)."""
+    """Tìm đúng đường dẫn file để thao tác (Ưu tiên ADJUSTED -> FINAL -> Source)."""
     exact_stem = _get_exact_stem_for_item(item, final_dir, sizes_cfg, cfg)
     is_multi = isinstance(sizes_cfg, list) and len(sizes_cfg) > 1
     size_label = ""
@@ -178,38 +178,36 @@ def _is_small_image(item) -> bool:
 def _live_preview_html(image_b64: str, target_w: int, target_h: int,
                        scale_pct: int, offset_x_pct: int, offset_y_pct: int,
                        status_pill_html: str, status_label: str) -> str:
+    """
+    CƠ CHẾ 2-LAYER:
+    - Layer 1 (Canvas): div 'live-frame' cố định kích thước, nền trắng, overflow: hidden
+    - Layer 2 (Product): img 'live-img' hiển thị sản phẩm gốc, áp dụng transform CSS để phóng to/dịch chuyển.
+    """
     if not image_b64:
-        return (
-            "<div class='live-frame live-frame--empty'>"
-            "<span>⚠️ Không tìm thấy ảnh đã render.</span>"
-            "</div>"
-        )
+        return "<div class='live-frame live-frame--empty'><span>⚠️ Không tìm thấy ảnh.</span></div>"
 
     factor = max(60, min(150, int(scale_pct))) / 100.0
     tx = max(-100, min(100, int(offset_x_pct))) * 0.5
     ty = max(-100, min(100, int(offset_y_pct))) * 0.5
 
-    if target_w and target_h:
-        aspect = f"{int(target_w)} / {int(target_h)}"
-    else:
-        aspect = "3 / 2"
+    aspect = f"{int(target_w)} / {int(target_h)}" if target_w and target_h else "3 / 2"
 
     return (
-        "<div class='live-frame' style='aspect-ratio:" + aspect + ";'>"
-        "  <div class='live-canvas'>"
-        "    <img class='live-img' src='" + image_b64 + "' "
-        "         style='transform: translate(" + f"{tx:.1f}%, {ty:.1f}%" + ") "
-        "                          scale(" + f"{factor:.3f}" + ");' "
-        "         alt='live preview'/>"
-        "  </div>"
-        "  <div class='live-status'>" + status_pill_html + "</div>"
-        "  <div class='live-overlay-info'>"
-        f"    <span>Scale {int(scale_pct)}%</span>"
-        f"    <span>X {int(offset_x_pct):+d}</span>"
-        f"    <span>Y {int(offset_y_pct):+d}</span>"
-        f"    <span class='live-overlay-status'>{status_label}</span>"
-        "  </div>"
-        "</div>"
+        f"<div class='live-frame' style='aspect-ratio: {aspect}; overflow: hidden; position: relative; background: #ffffff; border-radius: 8px; border: 1px solid rgba(139,92,246,0.3); box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>"
+        f"  <div class='live-canvas' style='position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;'>"
+        f"    <img class='live-img' src='{image_b64}' "
+        f"         style='max-width: 100%; max-height: 100%; object-fit: contain; "
+        f"                transform: translate({tx:.1f}%, {ty:.1f}%) scale({factor:.3f}); "
+        f"                transition: transform 0.1s ease-out;' "
+        f"         alt='Product Layer'/>"
+        f"  </div>"
+        f"  <div class='live-status' style='position: absolute; top: 10px; left: 10px; z-index: 10;'>{status_pill_html}</div>"
+        f"  <div class='live-overlay-info' style='position: absolute; bottom: 10px; left: 10px; right: 10px; display: flex; justify-content: space-between; background: rgba(15, 23, 42, 0.75); padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; color: #fff; z-index: 10; backdrop-filter: blur(4px);'>"
+        f"    <span>🔍 Scale: <b>{int(scale_pct)}%</b></span>"
+        f"    <span>↔️ X: <b>{int(offset_x_pct):+d}</b></span>"
+        f"    <span>↕️ Y: <b>{int(offset_y_pct):+d}</b></span>"
+        f"  </div>"
+        f"</div>"
     )
 
 
@@ -255,10 +253,10 @@ def render_adjustment_studio():
 
     st.markdown(
         "<div class='hero-card'>"
-        "<h2 style='font-size:1.25rem !important'>🎚 Studio Scale</h2>"
+        "<h2 style='font-size:1.25rem !important'>🎚 Studio Scale (2-Layer Mode)</h2>"
         "<p style='font-size:0.95rem !important;line-height:1.65 !important'>"
-        "Chỉ cần <b>kéo Slider</b> để chỉnh ảnh, hệ thống sẽ tự chọn ảnh đó. "
-        "Sau đó lướt xuống cuối trang để <b>Tạo ZIP Gộp</b> và Tải về."
+        "Khung hình sẽ được cố định cứng. Khi kéo Slider, chỉ có <b>sản phẩm bên trong (Layer) được phóng to và di chuyển</b>. "
+        "Những phần tràn ra ngoài sẽ tự động được cắt bỏ hoàn hảo."
         "</p></div>",
         unsafe_allow_html=True,
     )
@@ -272,15 +270,6 @@ def render_adjustment_studio():
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    if st.session_state.pop("_studio_just_arrived", False):
-        st.markdown(
-            "<div class='studio-fresh-banner'>"
-            "✅ <b>Vừa render xong</b> — Ảnh hiển thị bên dưới là <b>kết quả thực tế đã được resize</b>. "
-            "Kéo slider để xem ảnh giãn/nở ngay."
-            "</div>",
-            unsafe_allow_html=True,
-        )
-
     render_batch_kpis(meta)
 
     total = len(manifest)
@@ -291,8 +280,8 @@ def render_adjustment_studio():
         f"<div class='guide-box'>"
         f"<b>Batch:</b> {meta.get('batch_id', '-')} · "
         f"<b>Tổng ảnh:</b> {total} · "
-        f"<b>Đã chọn sửa:</b> <span style='color:#fbbf24'>{selected_count}</span> · "
-        f"<b>Ảnh nhỏ cảnh báo:</b> <span style='color:#f87171'>{small_count}</span>"
+        f"<b>Đang chọn sửa:</b> <span style='color:#fbbf24'>{selected_count}</span> · "
+        f"<b>Cảnh báo (Nhỏ):</b> <span style='color:#f87171'>{small_count}</span>"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -381,7 +370,7 @@ def render_adjustment_studio():
     # ═════ TỪNG ẢNH ═════
     st.markdown(
         f'<div class="sec-title">🖼 Điều chỉnh từng ảnh '
-        f'({len(page_items)}/{len(filtered)}) — Live Preview</div>',
+        f'({len(page_items)}/{len(filtered)}) — 2-Layer Preview</div>',
         unsafe_allow_html=True,
     )
 
@@ -397,12 +386,16 @@ def render_adjustment_studio():
         small_warn = _is_small_image(item)
 
         display_path, display_status = _get_exact_display_path(item, final_dir, adjusted_dir, sizes_cfg, cfg)
-        image_b64 = build_live_preview_b64(display_path)
+        
+        # BÍ QUYẾT Ở ĐÂY: Luôn dùng ảnh GỐC (chỉ chứa sản phẩm) để làm Layer 2 (hiển thị cho Live Preview)
+        source_path = str(item.get("source_path", ""))
+        preview_base = source_path if (source_path and Path(source_path).exists()) else display_path
+        image_b64 = build_live_preview_b64(preview_base)
 
         pill_map = {
-            "adjusted": ("pill-adjusted", "🎯 Đã chỉnh"),
-            "rendered": ("pill-rendered", "✅ Đã render (Gốc)"),
-            "source":   ("pill-source",   "📷 Ảnh nguồn"),
+            "adjusted": ("pill-adjusted", "🎯 Trạng thái: Đã chỉnh"),
+            "rendered": ("pill-rendered", "✅ Trạng thái: Đã render (Gốc)"),
+            "source":   ("pill-source",   "📷 Trạng thái: Ảnh nguồn"),
         }
         pill_class, pill_label = pill_map.get(display_status, pill_map["source"])
         pill_html = f"<span class='studio-status-pill {pill_class}'>{pill_label}</span>"
@@ -434,7 +427,7 @@ def render_adjustment_studio():
                     f"<div class='preview-meta'>"
                     f"📐 <b>{item.get('source_width', 0)}×{item.get('source_height', 0)}</b> "
                     f"&nbsp;·&nbsp; 💾 {readable_file_size(item.get('source_size_bytes', 0))} "
-                    f"&nbsp;·&nbsp; 🎯 Ra <b>{main_target_w}×{main_target_h}</b>"
+                    f"&nbsp;·&nbsp; 🎯 Canvas <b>{main_target_w}×{main_target_h}</b>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
@@ -472,21 +465,25 @@ def render_adjustment_studio():
                         st.session_state[scale_key] = min(150, int(st.session_state[scale_key]) + 5); st.session_state[sel_key] = True
                         st.rerun()
 
-                # Nút tải từng ảnh
+                # Nút tải riêng từng tấm ảnh
                 st.markdown("<hr style='margin: 10px 0; border-color: rgba(139,92,246,0.15);'>", unsafe_allow_html=True)
                 if display_path and Path(display_path).exists():
                     with open(display_path, "rb") as file_data:
                         file_bytes = file_data.read()
+                        dl_label = "📥 TẢI TẤM NÀY"
+                        # Đổi màu nút nếu ảnh đã được chỉnh sửa
+                        btn_type = "primary" if display_status == "adjusted" else "secondary"
                         st.download_button(
-                            label=f"📥 TẢI TẤM NÀY ({pill_label.split(' ', 1)[1]})",
+                            label=dl_label,
                             data=file_bytes,
                             file_name=Path(display_path).name,
                             mime="image/jpeg",
                             use_container_width=True,
+                            type=btn_type,
                             key=f"dl_single_btn_{item_id}"
                         )
 
-    # ═════ KHU VỰC XUẤT FILE & TẢI VỀ MỚI ═════
+    # ═════ KHU VỰC XUẤT FILE & TẢI VỀ ═════
     st.markdown("""
         <div class="export-panel">
             <h2 style="margin-top:0; color:#fff; font-size:1.4rem;">🚀 BƯỚC CUỐI: XUẤT FILE & TẢI VỀ</h2>
@@ -504,7 +501,7 @@ def render_adjustment_studio():
     with col_step1:
         st.markdown("<h4 style='color:#a78bfa; margin-bottom: 5px;'>▶ BƯỚC 1: RENDER</h4>", unsafe_allow_html=True)
         do_render = st.button(
-            f"🎨 ÁP DỤNG ĐIỀU CHỈNH ({len(selected_items)} ảnh)",
+            f"🎨 ÁP DỤNG ĐIỀU CHỈNH ({len(selected_items)} ảnh đang chọn)",
             type="primary",
             use_container_width=True,
             key="adj_render_selected",
@@ -514,7 +511,7 @@ def render_adjustment_studio():
     with col_step2:
         st.markdown("<h4 style='color:#a78bfa; margin-bottom: 5px;'>▶ BƯỚC 2: TẠO ZIP GỘP</h4>", unsafe_allow_html=True)
         do_export_full = st.button(
-            "📦 ĐÓNG GÓI ZIP (Ảnh đã sửa + Ảnh gốc)",
+            "📦 ĐÓNG GÓI ZIP (Tất cả ảnh đã sửa + chưa sửa)",
             type="primary",
             use_container_width=True,
             key="adj_export_full",
@@ -651,6 +648,6 @@ def render_adjustment_studio():
             finally:
                 handle_merged.close()
         else:
-            st.info("💡 Bạn cần bấm [BƯỚC 2: TẠO ZIP GỘP] để tải toàn bộ ảnh đã sửa về máy.")
+            st.info("💡 Bạn cần bấm [BƯỚC 2: TẠO ZIP GỘP] để phần mềm xuất và cung cấp file tải về.")
 
     st.markdown("</div>", unsafe_allow_html=True)
