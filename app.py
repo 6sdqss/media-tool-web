@@ -612,6 +612,162 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(input[type="checkbox"]:check
     border-color: rgba(251, 191, 36, 0.55) !important;
     box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.2);
 }
+
+/* ════════════════════════════════════════════════════════════ */
+/* ─── STUDIO TAB — BỐ CỤC TO RÕ, CĂN GIỮA HÌNH MỌI GÓC ─── */
+/* ════════════════════════════════════════════════════════════ */
+body.studio-mode .block-container,
+.studio-wide .block-container {
+    max-width: 1280px !important;
+}
+.studio-wrap, .studio-wrap * {
+    font-size: 14px !important;
+}
+.studio-wrap .stTextInput label,
+.studio-wrap .stSelectbox label,
+.studio-wrap .stNumberInput label,
+.studio-wrap .stSlider label,
+.studio-wrap .stCheckbox label,
+.studio-wrap .stToggle label {
+    font-size: 13.5px !important;
+    font-weight: 600 !important;
+    color: #e2e8f0 !important;
+}
+.studio-wrap .sec-title {
+    font-size: 0.95rem !important;
+    padding: 7px 14px !important;
+    border-left-width: 4px !important;
+    margin: 16px 0 10px !important;
+    letter-spacing: 0.6px;
+}
+.studio-wrap .guide-box {
+    font-size: 0.92rem !important;
+    padding: 12px 16px !important;
+    line-height: 1.7 !important;
+}
+.studio-wrap .preview-meta {
+    font-size: 0.84rem !important;
+    color: #cbd5e1 !important;
+    margin-top: 6px !important;
+    line-height: 1.6 !important;
+}
+.studio-wrap .stButton > button {
+    min-height: 42px !important;
+    font-size: 13.5px !important;
+    font-weight: 700 !important;
+}
+.studio-wrap div[data-testid="stVerticalBlockBorderWrapper"] {
+    padding: 16px !important;
+    margin-bottom: 14px !important;
+    border: 1px solid rgba(139, 92, 246, 0.22) !important;
+}
+
+/* ─── ẢNH TRONG STUDIO: CĂN GIỮA HOÀN TOÀN, MỌI GÓC ─── */
+.studio-wrap .stImage {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    width: 100% !important;
+}
+.studio-wrap .stImage > img,
+.studio-wrap [data-testid="stImage"] img {
+    object-fit: contain !important;
+    object-position: center center !important;
+    margin: 0 auto !important;
+    display: block !important;
+    max-height: 360px !important;
+    width: auto !important;
+    max-width: 100% !important;
+    background:
+        linear-gradient(45deg, #0f0f17 25%, transparent 25%) 0 0 / 14px 14px,
+        linear-gradient(-45deg, #0f0f17 25%, transparent 25%) 0 0 / 14px 14px,
+        linear-gradient(45deg, transparent 75%, #0f0f17 75%) 0 0 / 14px 14px,
+        linear-gradient(-45deg, transparent 75%, #0f0f17 75%) 0 0 / 14px 14px,
+        #0b0b12 !important;
+    border-radius: 10px !important;
+    border: 1px solid rgba(139, 92, 246, 0.18) !important;
+    padding: 6px !important;
+}
+.studio-status-pill {
+    display: inline-block;
+    font-size: 0.74rem;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 999px;
+    margin-left: 6px;
+    letter-spacing: 0.4px;
+    vertical-align: middle;
+}
+.pill-rendered { background: rgba(34,197,94,0.18); color: #86efac; border: 1px solid rgba(34,197,94,0.4); }
+.pill-adjusted { background: rgba(251,191,36,0.18); color: #fde68a; border: 1px solid rgba(251,191,36,0.45); }
+.pill-source   { background: rgba(148,163,184,0.18); color: #cbd5e1; border: 1px solid rgba(148,163,184,0.4); }
+.studio-img-title {
+    font-size: 0.96rem !important;
+    margin-bottom: 8px !important;
+    line-height: 1.5;
+}
+.studio-img-title b { color: #fff !important; font-size: 1rem !important; }
+.studio-img-title code {
+    font-size: 0.78rem !important;
+    color: #c4b5fd !important;
+    background: rgba(139,92,246,0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+/* ─── BANNER "VỪA RENDER XONG" trên Studio ─── */
+.studio-fresh-banner {
+    background: linear-gradient(135deg, rgba(34,197,94,0.18), rgba(16,185,129,0.10));
+    border: 1px solid rgba(34,197,94,0.45);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin: 4px 0 10px;
+    font-size: 0.88rem;
+    color: #d1fae5;
+    font-weight: 600;
+    animation: fresh-pulse 2s ease-in-out infinite;
+}
+.studio-fresh-banner b { color: #86efac; }
+@keyframes fresh-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.0); }
+    50%      { box-shadow: 0 0 0 4px rgba(34,197,94,0.18); }
+}
+
+/* ─── RADIO-AS-TABS ─── */
+div[data-testid="stRadio"][aria-label="_app_tab_nav"] > div[role="radiogroup"],
+.app-tab-nav div[role="radiogroup"] {
+    gap: 4px !important;
+    background: rgba(21, 21, 31, 0.5) !important;
+    border-radius: 10px !important;
+    padding: 6px !important;
+    flex-wrap: wrap !important;
+    border: 1px solid rgba(139,92,246,0.15) !important;
+    margin-bottom: 12px !important;
+}
+.app-tab-nav label {
+    background: transparent !important;
+    color: #94a3b8 !important;
+    padding: 8px 16px !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    font-size: 13px !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    margin: 0 !important;
+    border: 1px solid transparent !important;
+}
+.app-tab-nav label:hover {
+    background: rgba(139,92,246,0.1) !important;
+    color: #c4b5fd !important;
+}
+.app-tab-nav label > div:first-child {
+    display: none !important;
+}
+.app-tab-nav label:has(input:checked) {
+    background: linear-gradient(135deg, #8b5cf6, #6366f1) !important;
+    color: #fff !important;
+    box-shadow: 0 2px 10px rgba(139,92,246,0.35) !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -838,53 +994,100 @@ if is_admin:
 if not tab_keys or tab_keys == ["guide"]:
     st.warning("⚠️ Tài khoản chưa được cấp quyền truy cập tab xử lý. Liên hệ Admin để được duyệt.")
 
-tabs = st.tabs(tab_labels)
+# ──────────────────────────────────────────────────────────────
+# AUTO-SWITCH SANG STUDIO khi vừa render xong ở tab khác
+# ──────────────────────────────────────────────────────────────
+if "active_tab_key" not in st.session_state:
+    st.session_state.active_tab_key = tab_keys[0] if tab_keys else "guide"
 
-for tab, key in zip(tabs, tab_keys):
-    with tab:
-        if key == "web":
-            if run_mode_web is None:
-                st.error(f"❌ Module mode_web.py lỗi: {_err_web}")
-            else:
-                run_mode_web(config)
+# Nếu mode Web/Drive/Local vừa set cờ _goto_studio → tự chuyển sang tab Studio
+if st.session_state.pop("_goto_studio", False) and "studio" in tab_keys:
+    st.session_state.active_tab_key = "studio"
+    st.session_state["_studio_just_arrived"] = True
 
-        elif key == "studio":
-            if render_adjustment_studio is None:
-                st.error(f"❌ Module mode_adjust.py lỗi: {_err_adjust}")
-            else:
-                render_adjustment_studio()
+if st.session_state.active_tab_key not in tab_keys:
+    st.session_state.active_tab_key = tab_keys[0]
 
-        elif key == "drive":
-            if run_mode_drive is None:
-                st.error(f"❌ Module mode_drive.py lỗi: {_err_drive}")
-            else:
-                drive_service = get_gdrive_service()
-                run_mode_drive(config, drive_service)
+# Có batch mới chưa xem ở Studio → highlight tab Studio (badge nháy)
+current_batch_id = st.session_state.get("last_batch_meta", {}).get("batch_id")
+studio_has_new = bool(current_batch_id) and (
+    st.session_state.get("_studio_seen_batch_id") != current_batch_id
+)
 
-        elif key == "local":
-            if run_mode_local is None:
-                st.error(f"❌ Module mode_local.py lỗi: {_err_local}")
-            else:
-                run_mode_local(config)
+label_for_key = dict(zip(tab_keys, tab_labels))
+if studio_has_new and "studio" in label_for_key and st.session_state.active_tab_key != "studio":
+    label_for_key["studio"] = label_for_key["studio"] + " 🔴"
 
-        elif key == "guide":
-            st.markdown("""
-                <div class='guide-box'>
-                <div style='font-size:0.92rem;font-weight:800;color:#fff;margin-bottom:6px'>
-                📌 Media Tool Pro VIP — Hướng dẫn nhanh
-                </div>
-                <b>1.</b> Đăng ký → Admin duyệt và cấp quyền tab.<br>
-                <b>2.</b> Mỗi tab tương ứng một quyền riêng.<br>
-                <b>3.</b> <b>Web TGDD:</b> dán link → quét → chọn màu → resize.<br>
-                <b>4.</b> <b>Studio:</b> chỉnh từng ảnh sau batch → render lại.<br>
-                <b>5.</b> <b>Drive / Local:</b> xử lý ảnh từ Drive hoặc ZIP.<br>
-                <b>6.</b> Cấu hình GitHub Sync trong Streamlit Secrets:<br>
-                &nbsp;&nbsp;<code>GITHUB_TOKEN</code>, <code>GITHUB_REPO</code>, <code>GITHUB_BRANCH</code>
-                </div>
-            """, unsafe_allow_html=True)
+display_options = [label_for_key[k] for k in tab_keys]
+try:
+    current_index = tab_keys.index(st.session_state.active_tab_key)
+except ValueError:
+    current_index = 0
 
-        elif key == "admin":
-            try:
-                render_admin_panel()
-            except Exception as e:
-                st.warning(f"Admin Panel lỗi: {e}")
+st.markdown("<div class='app-tab-nav'>", unsafe_allow_html=True)
+selected_label = st.radio(
+    "_app_tab_nav",
+    options=display_options,
+    index=current_index,
+    horizontal=True,
+    label_visibility="collapsed",
+    key="_active_tab_radio",
+)
+st.markdown("</div>", unsafe_allow_html=True)
+
+selected_key = tab_keys[display_options.index(selected_label)]
+if selected_key != st.session_state.active_tab_key:
+    st.session_state.active_tab_key = selected_key
+    st.rerun()
+
+# Đánh dấu đã xem batch khi vào Studio (tắt chấm đỏ)
+if selected_key == "studio":
+    st.session_state["_studio_seen_batch_id"] = current_batch_id
+
+key = selected_key
+if key == "web":
+    if run_mode_web is None:
+        st.error(f"❌ Module mode_web.py lỗi: {_err_web}")
+    else:
+        run_mode_web(config)
+
+elif key == "studio":
+    if render_adjustment_studio is None:
+        st.error(f"❌ Module mode_adjust.py lỗi: {_err_adjust}")
+    else:
+        render_adjustment_studio()
+
+elif key == "drive":
+    if run_mode_drive is None:
+        st.error(f"❌ Module mode_drive.py lỗi: {_err_drive}")
+    else:
+        drive_service = get_gdrive_service()
+        run_mode_drive(config, drive_service)
+
+elif key == "local":
+    if run_mode_local is None:
+        st.error(f"❌ Module mode_local.py lỗi: {_err_local}")
+    else:
+        run_mode_local(config)
+
+elif key == "guide":
+    st.markdown("""
+        <div class='guide-box'>
+        <div style='font-size:0.92rem;font-weight:800;color:#fff;margin-bottom:6px'>
+        📌 Media Tool Pro VIP — Hướng dẫn nhanh
+        </div>
+        <b>1.</b> Đăng ký → Admin duyệt và cấp quyền tab.<br>
+        <b>2.</b> Mỗi tab tương ứng một quyền riêng.<br>
+        <b>3.</b> <b>Web TGDD:</b> dán link → quét → chọn màu → resize.<br>
+        <b>4.</b> <b>Studio:</b> chỉnh từng ảnh sau batch → render lại. Sau khi render xong ở các tab khác sẽ <b>tự chuyển</b> sang Studio.<br>
+        <b>5.</b> <b>Drive / Local:</b> xử lý ảnh từ Drive hoặc ZIP.<br>
+        <b>6.</b> Cấu hình GitHub Sync trong Streamlit Secrets:<br>
+        &nbsp;&nbsp;<code>GITHUB_TOKEN</code>, <code>GITHUB_REPO</code>, <code>GITHUB_BRANCH</code>
+        </div>
+    """, unsafe_allow_html=True)
+
+elif key == "admin":
+    try:
+        render_admin_panel()
+    except Exception as e:
+        st.warning(f"Admin Panel lỗi: {e}")
