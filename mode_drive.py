@@ -303,6 +303,7 @@ def run_mode_drive(cfg: dict, drive_service):
             batch_meta = {
                 "batch_id": workspace["batch_id"],
                 "root": str(temp_path),
+                "final_dir": str(final_dir),
                 "source_name": "Google Drive",
                 "source_count": len(manifest_items),
                 "output_count": len(all_output_files),
@@ -315,11 +316,13 @@ def run_mode_drive(cfg: dict, drive_service):
             st.session_state.last_batch_manifest = manifest_items
             st.session_state.last_batch_cfg = dict(cfg)
             st.session_state.last_batch_meta = batch_meta
+            st.session_state.pop("_adjusted_root", None)
+            st.session_state["_goto_studio"] = True
 
             size_label = " + ".join([get_size_label(w, h, m) for w, h, m in sizes])
             detail_text = ", ".join([url.split("/")[-1][:15] for url in links[:3]])
             add_to_history("Drive", detail_text, len(all_output_files), size_label, duration)
-            st.info("💡 Sang tab 'Studio' để chỉnh từng ảnh nếu cần.")
+            st.success("🎯 Render xong! Đang chuyển sang **tab Studio** để bạn xem & chỉnh ảnh...")
         else:
             status_placeholder.error("❌ Không nhận được file ảnh hợp lệ.")
 
