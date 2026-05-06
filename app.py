@@ -626,7 +626,7 @@ def render_login_screen():
     st.markdown("<div class='login-shell'>", unsafe_allow_html=True)
     st.markdown("""
         <div class="login-card">
-            <div class="login-brand">🖼</div>
+            <div class="login-brand">&#128444;</div>
             <h1 class="login-title">Media Tool Pro VIP</h1>
             <p class="login-sub">v9.0 · Secure Workspace</p>
         </div>
@@ -681,7 +681,7 @@ is_admin = user.get("role") == "admin"
 with st.sidebar:
     st.markdown("""
         <div class="sb-logo-wrap">
-            <div class="sb-logo-icon">🖼</div>
+            <div class="sb-logo-icon">&#128444;</div>
             <div class="sb-logo-title">Media Tool Pro VIP</div>
             <div class="sb-logo-sub">v9.0 · GitHub Sync</div>
         </div>
