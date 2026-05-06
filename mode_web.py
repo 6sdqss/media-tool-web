@@ -37,8 +37,6 @@ from utils import (
     resize_to_multi_sizes,
     safe_image_meta,
     save_json,
-    show_preview,
-    show_processing_summary,
 )
 
 
@@ -800,8 +798,7 @@ def run_mode_web(cfg: dict):
                 make_zip(final_dir, zip_path, compresslevel=int(cfg.get("zip_compression", 6)))
                 st.session_state.web_zip_path = str(zip_path)
                 status_placeholder.success(f"🎉 Hoàn tất — {len(output_files)} ảnh output")
-                show_preview(final_dir)
-                show_processing_summary(final_dir, cfg.get("sizes", []), duration)
+                # Preview ở tab đã bị tắt để giảm tải RAM — xem ảnh trong Studio
 
                 batch_meta = {
                     "batch_id": workspace["batch_id"],
