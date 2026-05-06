@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-app.py - Media Tool Pro VIP Pro v9.0
+app.py - Media Tool Pro VIP Pro v9.3
 ─────────────────────────────────────────────────────────
 - Auth + Admin Panel + GitHub Sync
 - Phân quyền tab theo user
 - Giao diện COMPACT, ELEGANT, MOBILE-FRIENDLY
 - Theme glassmorphism violet/indigo
+- v9.3: Studio Live Preview, font cỡ chữ tăng, layout rộng hơn,
+        dual-zip download, banner auto-switch sau render.
 """
 
 from __future__ import annotations
@@ -71,7 +73,7 @@ st.set_page_config(
 
 
 # ══════════════════════════════════════════════════════════════
-# CSS — V9 COMPACT PREMIUM (Mobile-Friendly)
+# CSS — V9.3 (Bigger fonts, Studio live preview, dual zip)
 # ══════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
@@ -82,8 +84,8 @@ st.markdown("""
 
 html, body, [class*="css"] {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
-    font-size: 13px !important;
-    line-height: 1.45 !important;
+    font-size: 14.5px !important;
+    line-height: 1.55 !important;
 }
 
 /* ─── BACKGROUND ─── */
@@ -95,39 +97,39 @@ html, body, [class*="css"] {
     color: #e2e8f0 !important;
 }
 
-/* ─── CONTAINER COMPACT ─── */
+/* ─── CONTAINER ─── */
 .block-container {
-    max-width: 880px !important;
+    max-width: 1040px !important;
     padding-top: 1rem !important;
     padding-bottom: 1.5rem !important;
-    padding-left: 1rem !important;
-    padding-right: 1rem !important;
+    padding-left: 1.1rem !important;
+    padding-right: 1.1rem !important;
 }
 
 @media (max-width: 768px) {
     .block-container {
         max-width: 100% !important;
-        padding: 0.5rem !important;
+        padding: 0.55rem !important;
     }
-    html, body, [class*="css"] { font-size: 12.5px !important; }
+    html, body, [class*="css"] { font-size: 13.8px !important; }
 }
 
-/* ─── SIDEBAR COMPACT ─── */
+/* ─── SIDEBAR ─── */
 section[data-testid="stSidebar"] {
     background: linear-gradient(180deg, #14141d 0%, #0e0e16 100%) !important;
     border-right: 1px solid rgba(139, 92, 246, 0.15) !important;
-    width: 260px !important;
+    width: 270px !important;
 }
 section[data-testid="stSidebar"] > div {
     padding-top: 0.5rem !important;
 }
 section[data-testid="stSidebar"] * {
     color: #cbd5e1 !important;
-    font-size: 12.5px !important;
+    font-size: 13.5px !important;
 }
 section[data-testid="stSidebar"] .stButton button {
-    font-size: 12px !important;
-    min-height: 32px !important;
+    font-size: 13px !important;
+    min-height: 34px !important;
     padding: 4px 10px !important;
 }
 section[data-testid="stSidebar"] hr {
@@ -145,14 +147,14 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] {
     background: linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(59, 130, 246, 0.10) 100%);
     border: 1px solid rgba(139, 92, 246, 0.22);
     border-radius: 12px;
-    padding: 12px 16px;
+    padding: 13px 18px;
     margin-bottom: 12px;
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
 }
 .app-header h1 {
     margin: 0;
-    font-size: 1.05rem !important;
+    font-size: 1.18rem !important;
     font-weight: 800 !important;
     color: #fff !important;
     letter-spacing: -0.3px;
@@ -160,7 +162,7 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] {
 .app-header p {
     margin: 2px 0 0;
     color: #a78bfa;
-    font-size: 0.72rem;
+    font-size: 0.82rem;
     font-weight: 500;
 }
 
@@ -169,61 +171,61 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] {
     background: linear-gradient(135deg, rgba(139, 92, 246, 0.10), rgba(59, 130, 246, 0.06));
     border: 1px solid rgba(139, 92, 246, 0.2);
     border-radius: 10px;
-    padding: 10px 14px;
-    margin-bottom: 10px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
 }
 .hero-card h2 {
-    margin: 0 0 3px;
+    margin: 0 0 4px;
     color: #fff !important;
-    font-size: 0.95rem !important;
+    font-size: 1.05rem !important;
     font-weight: 700 !important;
 }
 .hero-card p {
     margin: 0;
     color: #94a3b8;
-    font-size: 0.74rem;
-    line-height: 1.5;
+    font-size: 0.85rem;
+    line-height: 1.6;
 }
 
 /* ─── BORDERED CONTAINERS ─── */
 div[data-testid="stVerticalBlockBorderWrapper"] {
     border-radius: 10px !important;
-    border: 1px solid rgba(139, 92, 246, 0.15) !important;
-    padding: 10px !important;
+    border: 1px solid rgba(139, 92, 246, 0.18) !important;
+    padding: 12px !important;
     background: rgba(21, 21, 31, 0.6) !important;
     backdrop-filter: blur(8px);
 }
 
 /* ─── SECTION TITLES ─── */
 .sec-title {
-    font-size: 0.7rem !important;
+    font-size: 0.82rem !important;
     font-weight: 700 !important;
     color: #c4b5fd !important;
     text-transform: uppercase;
     letter-spacing: 1px;
-    margin: 10px 0 6px !important;
-    padding: 3px 8px;
-    border-left: 2px solid #8b5cf6;
+    margin: 12px 0 7px !important;
+    padding: 4px 10px;
+    border-left: 3px solid #8b5cf6;
     background: rgba(139, 92, 246, 0.08);
     border-radius: 0 4px 4px 0;
 }
 .cfg-label {
-    font-size: 0.74rem !important;
+    font-size: 0.85rem !important;
     font-weight: 600 !important;
     color: #c4b5fd !important;
-    margin-bottom: 4px !important;
+    margin-bottom: 5px !important;
 }
 .tpl-hint {
-    font-size: 0.66rem;
-    color: #6b7280;
-    margin-top: 2px;
+    font-size: 0.74rem;
+    color: #9ca3af;
+    margin-top: 3px;
 }
 .tpl-hint code {
     background: rgba(139, 92, 246, 0.12);
     color: #c4b5fd;
-    padding: 1px 5px;
+    padding: 1px 6px;
     border-radius: 4px;
-    font-size: 0.62rem;
+    font-size: 0.7rem;
 }
 
 /* ─── GUIDE BOX ─── */
@@ -231,11 +233,11 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     background: rgba(139, 92, 246, 0.06);
     border: 1px solid rgba(139, 92, 246, 0.18);
     border-radius: 8px;
-    padding: 8px 12px;
-    font-size: 0.74rem;
+    padding: 10px 14px;
+    font-size: 0.86rem;
     color: #cbd5e1;
-    margin-bottom: 8px;
-    line-height: 1.55;
+    margin-bottom: 10px;
+    line-height: 1.65;
 }
 .guide-box b { color: #fff; }
 
@@ -244,23 +246,23 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     background: #04050a !important;
     color: #4ade80 !important;
     font-family: 'JetBrains Mono', 'Courier New', monospace !important;
-    font-size: 0.7rem !important;
+    font-size: 0.78rem !important;
     padding: 10px !important;
     border-radius: 8px !important;
-    max-height: 200px !important;
+    max-height: 220px !important;
     overflow-y: auto !important;
     border: 1px solid rgba(74, 222, 128, 0.18) !important;
-    line-height: 1.55 !important;
+    line-height: 1.6 !important;
 }
 
 /* ─── SUMMARY CARD ─── */
 .summary-card {
     background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(34, 197, 94, 0.06));
-    border: 1px solid rgba(16, 185, 129, 0.25);
+    border: 1px solid rgba(16, 185, 129, 0.3);
     border-radius: 10px;
-    padding: 10px 12px;
+    padding: 11px 14px;
     margin: 8px 0;
-    font-size: 0.78rem;
+    font-size: 0.9rem;
     line-height: 1.7;
     color: #d1fae5;
 }
@@ -269,9 +271,9 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
 /* ─── PREVIEW META ─── */
 .preview-meta {
     text-align: center;
-    font-size: 0.66rem;
-    color: #64748b;
-    margin-top: 2px;
+    font-size: 0.78rem;
+    color: #94a3b8;
+    margin-top: 4px;
 }
 
 /* ─── BUTTONS ─── */
@@ -281,9 +283,9 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     border-radius: 8px !important;
     border: none !important;
     font-weight: 600 !important;
-    font-size: 12.5px !important;
-    min-height: 34px !important;
-    padding: 4px 12px !important;
+    font-size: 13.5px !important;
+    min-height: 36px !important;
+    padding: 6px 14px !important;
     box-shadow: 0 2px 8px rgba(139, 92, 246, 0.25) !important;
     transition: all 0.2s ease !important;
 }
@@ -294,7 +296,6 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
 }
 .stButton > button:active { transform: translateY(0); }
 
-/* Secondary button style */
 button[kind="secondary"] {
     background: rgba(139, 92, 246, 0.1) !important;
     color: #c4b5fd !important;
@@ -312,23 +313,21 @@ button[kind="secondary"] {
     border: 1px solid rgba(139, 92, 246, 0.2) !important;
     border-radius: 8px !important;
     color: #f1f5f9 !important;
-    font-size: 12.5px !important;
-    min-height: 34px !important;
+    font-size: 13.5px !important;
+    min-height: 36px !important;
 }
 .stTextInput input:focus,
 .stTextArea textarea:focus {
     border-color: #8b5cf6 !important;
     box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.3) !important;
 }
-.stTextArea textarea {
-    min-height: 70px !important;
-}
+.stTextArea textarea { min-height: 75px !important; }
 
 /* ─── LABELS ─── */
 .stTextInput label, .stTextArea label, .stSelectbox label,
 .stNumberInput label, .stSlider label, .stMultiSelect label,
 .stRadio label, .stCheckbox label, .stToggle label {
-    font-size: 12px !important;
+    font-size: 13px !important;
     color: #cbd5e1 !important;
     font-weight: 500 !important;
 }
@@ -336,6 +335,11 @@ button[kind="secondary"] {
 /* ─── SLIDERS ─── */
 .stSlider [data-baseweb="slider"] > div > div {
     background: linear-gradient(90deg, #8b5cf6, #6366f1) !important;
+}
+.stSlider [role="slider"] {
+    background: #fff !important;
+    border: 2px solid #8b5cf6 !important;
+    box-shadow: 0 2px 8px rgba(139, 92, 246, 0.4) !important;
 }
 
 /* ─── TABS ─── */
@@ -348,11 +352,11 @@ button[kind="secondary"] {
     flex-wrap: nowrap !important;
 }
 .stTabs [data-baseweb="tab"] {
-    height: 34px !important;
-    padding: 0 12px !important;
+    height: 38px !important;
+    padding: 0 14px !important;
     border-radius: 6px !important;
     color: #94a3b8 !important;
-    font-size: 12px !important;
+    font-size: 13px !important;
     font-weight: 600 !important;
     white-space: nowrap !important;
     background: transparent !important;
@@ -371,24 +375,24 @@ button[kind="secondary"] {
     border-radius: 8px !important;
 }
 [data-testid="stExpander"] summary {
-    font-size: 12.5px !important;
+    font-size: 13.5px !important;
     font-weight: 600 !important;
-    padding: 6px 10px !important;
+    padding: 8px 12px !important;
 }
 
 /* ─── METRIC ─── */
 [data-testid="stMetric"] {
     background: rgba(139, 92, 246, 0.06);
     border: 1px solid rgba(139, 92, 246, 0.15);
-    padding: 8px 10px !important;
+    padding: 10px 12px !important;
     border-radius: 8px;
 }
 [data-testid="stMetricLabel"] {
-    font-size: 0.68rem !important;
+    font-size: 0.78rem !important;
     color: #94a3b8 !important;
 }
 [data-testid="stMetricValue"] {
-    font-size: 1.15rem !important;
+    font-size: 1.3rem !important;
     color: #fff !important;
     font-weight: 700 !important;
 }
@@ -396,31 +400,28 @@ button[kind="secondary"] {
 /* ─── ALERT BOXES ─── */
 [data-testid="stAlert"] {
     border-radius: 8px !important;
-    padding: 8px 12px !important;
-    font-size: 12px !important;
+    padding: 10px 14px !important;
+    font-size: 13px !important;
 }
 
 /* ─── CAPTION ─── */
 .stCaption, [data-testid="stCaptionContainer"] {
-    font-size: 0.7rem !important;
-    color: #94a3b8 !important;
+    font-size: 0.8rem !important;
+    color: #9ca3af !important;
 }
 
 /* ─── PROGRESS BAR ─── */
 .stProgress > div > div > div > div {
     background: linear-gradient(90deg, #8b5cf6, #ec4899) !important;
 }
-.stProgress > div > div { height: 6px !important; border-radius: 3px !important; }
+.stProgress > div > div { height: 7px !important; border-radius: 3px !important; }
 
 /* ─── LOGIN ─── */
-.login-shell {
-    max-width: 360px;
-    margin: 3rem auto 0;
-}
+.login-shell { max-width: 360px; margin: 3rem auto 0; }
 .login-card {
     background: rgba(21, 21, 31, 0.85);
     border-radius: 16px;
-    padding: 20px 22px 12px;
+    padding: 22px 24px 14px;
     border: 1px solid rgba(139, 92, 246, 0.2);
     box-shadow:
         0 20px 40px rgba(0, 0, 0, 0.5),
@@ -429,116 +430,98 @@ button[kind="secondary"] {
     -webkit-backdrop-filter: blur(20px);
 }
 .login-brand {
-    width: 52px; height: 52px;
+    width: 56px; height: 56px;
     border-radius: 14px;
-    margin: 0 auto 10px;
+    margin: 0 auto 12px;
     display: flex; align-items: center; justify-content: center;
     background: linear-gradient(135deg, #8b5cf6, #6366f1);
     color: #fff;
-    font-size: 1.6rem;
+    font-size: 1.7rem;
     box-shadow: 0 8px 20px rgba(139, 92, 246, 0.4);
 }
 .login-title {
     text-align: center;
     color: #fff !important;
     font-weight: 800;
-    font-size: 1.1rem;
+    font-size: 1.2rem;
     margin: 0;
     letter-spacing: -0.3px;
 }
 .login-sub {
     text-align: center;
     color: #94a3b8;
-    margin: 3px 0 14px;
-    font-size: 0.74rem;
+    margin: 4px 0 14px;
+    font-size: 0.82rem;
 }
 
 /* ─── USER CHIP ─── */
 .user-chip {
     background: linear-gradient(135deg, rgba(139, 92, 246, 0.12), rgba(99, 102, 241, 0.08));
     border-radius: 10px;
-    padding: 10px 12px;
+    padding: 11px 13px;
     border: 1px solid rgba(139, 92, 246, 0.22);
     margin-bottom: 8px;
 }
 .user-chip b {
     color: #fff !important;
-    font-size: 0.84rem !important;
+    font-size: 0.95rem !important;
     font-weight: 700 !important;
 }
 .user-chip span {
     color: #a78bfa !important;
-    font-size: 0.66rem !important;
+    font-size: 0.74rem !important;
 }
 
 /* ─── SIDEBAR LOGO ─── */
-.sb-logo-wrap {
-    text-align: center;
-    padding: 4px 0 2px;
-}
+.sb-logo-wrap { text-align: center; padding: 4px 0 2px; }
 .sb-logo-icon {
-    width: 44px; height: 44px;
-    margin: 0 auto 6px;
+    width: 46px; height: 46px;
+    margin: 0 auto 7px;
     border-radius: 12px;
     background: linear-gradient(135deg, #8b5cf6, #6366f1);
     display: flex; align-items: center; justify-content: center;
-    font-size: 1.2rem;
+    font-size: 1.3rem;
     box-shadow: 0 4px 14px rgba(139, 92, 246, 0.35);
 }
 .sb-logo-title {
     font-weight: 800 !important;
-    font-size: 0.86rem !important;
+    font-size: 0.95rem !important;
     color: #fff !important;
     letter-spacing: -0.2px;
 }
 .sb-logo-sub {
-    font-size: 0.64rem !important;
+    font-size: 0.72rem !important;
     color: #a78bfa !important;
-    margin-top: 1px;
+    margin-top: 2px;
 }
 
 /* ─── HISTORY ITEM ─── */
 .history-item {
-    padding: 5px 0;
+    padding: 6px 0;
     border-bottom: 1px solid rgba(139, 92, 246, 0.08);
 }
-.hi-top {
-    font-size: 0.7rem !important;
-    color: #e2e8f0 !important;
-    margin-bottom: 1px;
-}
+.hi-top { font-size: 0.8rem !important; color: #e2e8f0 !important; margin-bottom: 1px; }
 .hi-top b { color: #fff !important; }
-.hi-bot {
-    font-size: 0.62rem !important;
-    color: #64748b !important;
-}
+.hi-bot { font-size: 0.72rem !important; color: #64748b !important; }
 
 /* ─── STAT PILLS ─── */
-.stat-row {
-    display: flex;
-    gap: 4px;
-    margin: 4px 0 6px;
-}
+.stat-row { display: flex; gap: 5px; margin: 4px 0 6px; }
 .stat-pill {
     flex: 1;
     border-radius: 8px;
-    padding: 6px 4px;
+    padding: 7px 4px;
     text-align: center;
     border: 1px solid rgba(255, 255, 255, 0.05);
 }
 .stat-a { background: rgba(99, 102, 241, 0.15); }
 .stat-b { background: rgba(16, 185, 129, 0.15); }
 .stat-c { background: rgba(251, 191, 36, 0.15); }
-.sp-num {
-    font-size: 0.95rem !important;
-    font-weight: 800 !important;
-    color: #fff !important;
-}
+.sp-num { font-size: 1.05rem !important; font-weight: 800 !important; color: #fff !important; }
 .stat-a .sp-num { color: #c7d2fe !important; }
 .stat-b .sp-num { color: #a7f3d0 !important; }
 .stat-c .sp-num { color: #fde68a !important; }
 .sp-lbl {
-    font-size: 0.58rem !important;
+    font-size: 0.66rem !important;
     color: #94a3b8 !important;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -548,7 +531,7 @@ button[kind="secondary"] {
 .ctrl-row {
     background: rgba(21, 21, 31, 0.5);
     border-radius: 8px;
-    padding: 6px;
+    padding: 7px;
     margin: 6px 0;
     border: 1px solid rgba(139, 92, 246, 0.12);
 }
@@ -556,19 +539,17 @@ button[kind="secondary"] {
 /* ─── DIVIDER ─── */
 hr {
     border-color: rgba(139, 92, 246, 0.12) !important;
-    margin: 10px 0 !important;
+    margin: 12px 0 !important;
 }
 
 /* ─── CHECKBOX & TOGGLE ─── */
-.stCheckbox label, .stToggle label {
-    font-size: 12px !important;
-}
+.stCheckbox label, .stToggle label { font-size: 13.5px !important; }
 
 /* ─── SPINNER ─── */
 .stSpinner > div { border-top-color: #8b5cf6 !important; }
 
 /* ─── SCROLLBAR ─── */
-::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: #0b0b12; }
 ::-webkit-scrollbar-thumb {
     background: rgba(139, 92, 246, 0.3);
@@ -578,33 +559,31 @@ hr {
 
 /* ─── MOBILE ADJUSTMENTS ─── */
 @media (max-width: 640px) {
-    .app-header h1 { font-size: 0.95rem !important; }
-    .app-header p { font-size: 0.66rem !important; }
+    .app-header h1 { font-size: 1.05rem !important; }
+    .app-header p { font-size: 0.74rem !important; }
     .stTabs [data-baseweb="tab-list"] {
         position: sticky; top: 0; z-index: 99;
         background: rgba(11, 11, 18, 0.95) !important;
         backdrop-filter: blur(12px);
     }
     .stTabs [data-baseweb="tab"] {
-        padding: 0 10px !important;
-        font-size: 11.5px !important;
-        min-height: 36px !important;
+        padding: 0 12px !important;
+        font-size: 12.5px !important;
+        min-height: 38px !important;
     }
     .login-shell { padding: 0 12px; }
-    .stButton > button { font-size: 12px !important; min-height: 38px !important; }
-    .stDownloadButton > button { min-height: 42px !important; font-size: 12.5px !important; }
-    [data-testid="stMetricValue"] { font-size: 1rem !important; }
+    .stButton > button { font-size: 13px !important; min-height: 40px !important; }
+    .stDownloadButton > button { min-height: 44px !important; font-size: 13.5px !important; }
+    [data-testid="stMetricValue"] { font-size: 1.1rem !important; }
     section[data-testid="stSidebar"] { width: 86vw !important; }
-    .block-container { padding: 0.4rem !important; }
-    /* Touch-friendly slider */
-    .stSlider [role="slider"] { width: 22px !important; height: 22px !important; }
-    /* Easier tap on checkbox */
-    .stCheckbox label { min-height: 32px !important; align-items: center !important; }
+    .block-container { padding: 0.45rem !important; }
+    .stSlider [role="slider"] { width: 24px !important; height: 24px !important; }
+    .stCheckbox label { min-height: 34px !important; align-items: center !important; }
 }
 
 /* ─── TABLET ─── */
 @media (min-width: 641px) and (max-width: 1024px) {
-    .block-container { max-width: 760px !important; }
+    .block-container { max-width: 920px !important; }
 }
 
 /* ─── HIGHLIGHT BORDER cho ảnh đang chọn ─── */
@@ -614,55 +593,59 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(input[type="checkbox"]:check
 }
 
 /* ════════════════════════════════════════════════════════════ */
-/* ─── STUDIO TAB — BỐ CỤC TO RÕ, CĂN GIỮA HÌNH MỌI GÓC ─── */
+/* ─── STUDIO TAB — BỐ CỤC TO RÕ + LIVE PREVIEW ─── */
 /* ════════════════════════════════════════════════════════════ */
-body.studio-mode .block-container,
-.studio-wide .block-container {
-    max-width: 1280px !important;
-}
-.studio-wrap, .studio-wrap * {
-    font-size: 14px !important;
-}
+.studio-wrap, .studio-wrap * { font-size: 15px !important; }
+
 .studio-wrap .stTextInput label,
 .studio-wrap .stSelectbox label,
 .studio-wrap .stNumberInput label,
 .studio-wrap .stSlider label,
 .studio-wrap .stCheckbox label,
 .studio-wrap .stToggle label {
-    font-size: 13.5px !important;
+    font-size: 14.5px !important;
     font-weight: 600 !important;
     color: #e2e8f0 !important;
 }
 .studio-wrap .sec-title {
-    font-size: 0.95rem !important;
-    padding: 7px 14px !important;
+    font-size: 1rem !important;
+    padding: 8px 14px !important;
     border-left-width: 4px !important;
-    margin: 16px 0 10px !important;
-    letter-spacing: 0.6px;
+    margin: 18px 0 11px !important;
+    letter-spacing: 0.7px;
 }
 .studio-wrap .guide-box {
-    font-size: 0.92rem !important;
-    padding: 12px 16px !important;
-    line-height: 1.7 !important;
+    font-size: 0.98rem !important;
+    padding: 13px 17px !important;
+    line-height: 1.75 !important;
 }
 .studio-wrap .preview-meta {
-    font-size: 0.84rem !important;
+    font-size: 0.92rem !important;
     color: #cbd5e1 !important;
-    margin-top: 6px !important;
-    line-height: 1.6 !important;
+    margin-top: 8px !important;
+    line-height: 1.65 !important;
 }
 .studio-wrap .stButton > button {
-    min-height: 42px !important;
-    font-size: 13.5px !important;
+    min-height: 44px !important;
+    font-size: 14px !important;
     font-weight: 700 !important;
 }
 .studio-wrap div[data-testid="stVerticalBlockBorderWrapper"] {
-    padding: 16px !important;
-    margin-bottom: 14px !important;
+    padding: 18px !important;
+    margin-bottom: 16px !important;
     border: 1px solid rgba(139, 92, 246, 0.22) !important;
 }
 
-/* ─── ẢNH TRONG STUDIO: CĂN GIỮA HOÀN TOÀN, MỌI GÓC ─── */
+/* Studio block-container rộng hơn cho desktop */
+@media (min-width: 1025px) {
+    /* Tăng max-width khi đang ở Studio tab */
+    body:has(.studio-wrap) .block-container,
+    .studio-wide .block-container {
+        max-width: 1400px !important;
+    }
+}
+
+/* ─── ẢNH PHỤ TRỢ TRONG STUDIO (st.image fallback) ─── */
 .studio-wrap .stImage {
     display: flex !important;
     justify-content: center !important;
@@ -675,44 +658,117 @@ body.studio-mode .block-container,
     object-position: center center !important;
     margin: 0 auto !important;
     display: block !important;
-    max-height: 360px !important;
+    max-height: 500px !important;
     width: auto !important;
     max-width: 100% !important;
     background:
-        linear-gradient(45deg, #0f0f17 25%, transparent 25%) 0 0 / 14px 14px,
-        linear-gradient(-45deg, #0f0f17 25%, transparent 25%) 0 0 / 14px 14px,
-        linear-gradient(45deg, transparent 75%, #0f0f17 75%) 0 0 / 14px 14px,
-        linear-gradient(-45deg, transparent 75%, #0f0f17 75%) 0 0 / 14px 14px,
+        linear-gradient(45deg, #0f0f17 25%, transparent 25%) 0 0 / 16px 16px,
+        linear-gradient(-45deg, #0f0f17 25%, transparent 25%) 0 0 / 16px 16px,
+        linear-gradient(45deg, transparent 75%, #0f0f17 75%) 0 0 / 16px 16px,
+        linear-gradient(-45deg, transparent 75%, #0f0f17 75%) 0 0 / 16px 16px,
         #0b0b12 !important;
     border-radius: 10px !important;
     border: 1px solid rgba(139, 92, 246, 0.18) !important;
     padding: 6px !important;
 }
+
+/* ─── LIVE PREVIEW FRAME (THẾ HỆ MỚI) ─── */
+.live-frame {
+    position: relative;
+    width: 100%;
+    max-width: 560px;
+    margin: 0 auto;
+    background:
+        linear-gradient(45deg, #0f0f17 25%, transparent 25%) 0 0 / 18px 18px,
+        linear-gradient(-45deg, #0f0f17 25%, transparent 25%) 0 0 / 18px 18px,
+        linear-gradient(45deg, transparent 75%, #0f0f17 75%) 0 0 / 18px 18px,
+        linear-gradient(-45deg, transparent 75%, #0f0f17 75%) 0 0 / 18px 18px,
+        #ffffff;
+    border: 1px solid rgba(139, 92, 246, 0.28);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+    /* aspect-ratio đặt inline theo size đầu ra */
+}
+.live-frame--empty {
+    aspect-ratio: 3 / 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #f87171;
+    font-size: 0.95rem;
+    background: rgba(15, 15, 23, 0.85);
+}
+.live-canvas {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+.live-canvas .live-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: center center;
+    transform-origin: center center;
+    transition: transform 0.15s cubic-bezier(.4,.7,.2,1);
+    will-change: transform;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+.live-status {
+    position: absolute;
+    top: 8px; left: 8px;
+    z-index: 3;
+}
+.live-overlay-info {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    padding: 7px 12px;
+    background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.55) 75%);
+    color: #e2e8f0;
+    font-size: 0.82rem !important;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    z-index: 2;
+}
+.live-overlay-info span { white-space: nowrap; }
+.live-overlay-status { margin-left: auto; color: #fde68a; }
+
+/* ─── STATUS PILL ─── */
 .studio-status-pill {
     display: inline-block;
-    font-size: 0.74rem;
+    font-size: 0.82rem;
     font-weight: 700;
-    padding: 3px 10px;
+    padding: 4px 12px;
     border-radius: 999px;
-    margin-left: 6px;
     letter-spacing: 0.4px;
     vertical-align: middle;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(6px);
 }
-.pill-rendered { background: rgba(34,197,94,0.18); color: #86efac; border: 1px solid rgba(34,197,94,0.4); }
-.pill-adjusted { background: rgba(251,191,36,0.18); color: #fde68a; border: 1px solid rgba(251,191,36,0.45); }
-.pill-source   { background: rgba(148,163,184,0.18); color: #cbd5e1; border: 1px solid rgba(148,163,184,0.4); }
+.pill-rendered { background: rgba(34,197,94,0.85); color: #ffffff; border: 1px solid rgba(34,197,94,0.85); }
+.pill-adjusted { background: rgba(251,191,36,0.9);  color: #1f2937; border: 1px solid rgba(251,191,36,0.95); }
+.pill-source   { background: rgba(148,163,184,0.85); color: #ffffff; border: 1px solid rgba(148,163,184,0.85); }
+
 .studio-img-title {
-    font-size: 0.96rem !important;
-    margin-bottom: 8px !important;
-    line-height: 1.5;
+    font-size: 1.05rem !important;
+    margin-bottom: 10px !important;
+    line-height: 1.55;
 }
-.studio-img-title b { color: #fff !important; font-size: 1rem !important; }
+.studio-img-title b { color: #fff !important; font-size: 1.1rem !important; }
 .studio-img-title code {
-    font-size: 0.78rem !important;
+    font-size: 0.88rem !important;
     color: #c4b5fd !important;
-    background: rgba(139,92,246,0.1);
-    padding: 2px 6px;
-    border-radius: 4px;
+    background: rgba(139,92,246,0.14);
+    padding: 3px 8px;
+    border-radius: 5px;
+    word-break: break-all;
 }
 
 /* ─── BANNER "VỪA RENDER XONG" trên Studio ─── */
@@ -720,9 +776,9 @@ body.studio-mode .block-container,
     background: linear-gradient(135deg, rgba(34,197,94,0.18), rgba(16,185,129,0.10));
     border: 1px solid rgba(34,197,94,0.45);
     border-radius: 10px;
-    padding: 10px 14px;
-    margin: 4px 0 10px;
-    font-size: 0.88rem;
+    padding: 12px 16px;
+    margin: 4px 0 12px;
+    font-size: 0.95rem;
     color: #d1fae5;
     font-weight: 600;
     animation: fresh-pulse 2s ease-in-out infinite;
@@ -730,27 +786,27 @@ body.studio-mode .block-container,
 .studio-fresh-banner b { color: #86efac; }
 @keyframes fresh-pulse {
     0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.0); }
-    50%      { box-shadow: 0 0 0 4px rgba(34,197,94,0.18); }
+    50%      { box-shadow: 0 0 0 5px rgba(34,197,94,0.18); }
 }
 
 /* ─── RADIO-AS-TABS ─── */
 div[data-testid="stRadio"][aria-label="_app_tab_nav"] > div[role="radiogroup"],
 .app-tab-nav div[role="radiogroup"] {
-    gap: 4px !important;
+    gap: 5px !important;
     background: rgba(21, 21, 31, 0.5) !important;
     border-radius: 10px !important;
     padding: 6px !important;
     flex-wrap: wrap !important;
     border: 1px solid rgba(139,92,246,0.15) !important;
-    margin-bottom: 12px !important;
+    margin-bottom: 14px !important;
 }
 .app-tab-nav label {
     background: transparent !important;
     color: #94a3b8 !important;
-    padding: 8px 16px !important;
+    padding: 9px 18px !important;
     border-radius: 8px !important;
     font-weight: 600 !important;
-    font-size: 13px !important;
+    font-size: 13.5px !important;
     cursor: pointer !important;
     transition: all 0.2s ease !important;
     margin: 0 !important;
@@ -760,13 +816,18 @@ div[data-testid="stRadio"][aria-label="_app_tab_nav"] > div[role="radiogroup"],
     background: rgba(139,92,246,0.1) !important;
     color: #c4b5fd !important;
 }
-.app-tab-nav label > div:first-child {
-    display: none !important;
-}
+.app-tab-nav label > div:first-child { display: none !important; }
 .app-tab-nav label:has(input:checked) {
     background: linear-gradient(135deg, #8b5cf6, #6366f1) !important;
     color: #fff !important;
     box-shadow: 0 2px 10px rgba(139,92,246,0.35) !important;
+}
+
+/* Mobile Studio: live-frame thu nhỏ vừa khung */
+@media (max-width: 640px) {
+    .live-frame { max-width: 100%; }
+    .live-overlay-info { font-size: 0.78rem !important; padding: 6px 10px; }
+    .studio-img-title { font-size: 1rem !important; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -787,7 +848,7 @@ def render_login_screen():
         <div class="login-card">
             <div class="login-brand">&#128444;</div>
             <h1 class="login-title">Media Tool Pro VIP</h1>
-            <p class="login-sub">v9.0 &middot; Secure Workspace</p>
+            <p class="login-sub">v9.3 &middot; Secure Workspace</p>
         </div>
     """, unsafe_allow_html=True)
 
@@ -842,7 +903,7 @@ with st.sidebar:
         <div class="sb-logo-wrap">
             <div class="sb-logo-icon">&#128444;</div>
             <div class="sb-logo-title">Media Tool Pro VIP</div>
-            <div class="sb-logo-sub">v9.0 &middot; GitHub Sync</div>
+            <div class="sb-logo-sub">v9.3 &middot; Live Preview</div>
         </div>
     """, unsafe_allow_html=True)
     st.divider()
@@ -883,13 +944,13 @@ with st.sidebar:
 st.markdown(f"""
     <div class="app-header">
         <h1>&#128444; Workspace &middot; {user['username']}</h1>
-        <p>Phân quyền theo từng tab &middot; Auto-sync GitHub &middot; Mobile-ready</p>
+        <p>v9.3 · Live Preview Studio · Auto-sync GitHub · Mobile-ready</p>
     </div>
 """, unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════
-# CONFIG PANEL — COMPACT
+# CONFIG PANEL
 # ══════════════════════════════════════════════════════════════
 def render_config_panel() -> dict:
     with st.expander("⚙️ CẤU HÌNH XỬ LÝ", expanded=False):
@@ -1073,13 +1134,15 @@ elif key == "local":
 elif key == "guide":
     st.markdown("""
         <div class='guide-box'>
-        <div style='font-size:0.92rem;font-weight:800;color:#fff;margin-bottom:6px'>
-        📌 Media Tool Pro VIP — Hướng dẫn nhanh
+        <div style='font-size:1.05rem;font-weight:800;color:#fff;margin-bottom:8px'>
+        📌 Media Tool Pro VIP v9.3 — Hướng dẫn nhanh
         </div>
         <b>1.</b> Đăng ký → Admin duyệt và cấp quyền tab.<br>
         <b>2.</b> Mỗi tab tương ứng một quyền riêng.<br>
         <b>3.</b> <b>Web TGDD:</b> dán link → quét → chọn màu → resize.<br>
-        <b>4.</b> <b>Studio:</b> chỉnh từng ảnh sau batch → render lại. Sau khi render xong ở các tab khác sẽ <b>tự chuyển</b> sang Studio.<br>
+        <b>4.</b> <b>Studio:</b> chỉnh từng ảnh sau batch → render lại.
+            Sau khi render xong ở các tab khác sẽ <b>tự chuyển</b> sang Studio.
+            Có <b>Live Preview</b> giãn/dịch ảnh ngay theo slider.<br>
         <b>5.</b> <b>Drive / Local:</b> xử lý ảnh từ Drive hoặc ZIP.<br>
         <b>6.</b> Cấu hình GitHub Sync trong Streamlit Secrets:<br>
         &nbsp;&nbsp;<code>GITHUB_TOKEN</code>, <code>GITHUB_REPO</code>, <code>GITHUB_BRANCH</code>
