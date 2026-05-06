@@ -1,12 +1,12 @@
 """
-utils.py — Media Tool Pro VIP Pro v9.0
+utils.py — Media Tool Pro VIP Pro v9.3
 ─────────────────────────────────────────────────────────
-Trọng tâm nâng cấp v9.0:
-- UI compact, gọn nhẹ, mobile-friendly
-- Tối ưu xử lý ảnh lớn / batch nặng
-- Hỗ trợ scale + offset riêng từng ảnh
-- Workspace bền vững cho tab Studio Scale
-- Helpers tái sử dụng cho mọi mode
+Trọng tâm v9.3 (giữ nguyên logic cũ, CHỈ MỞ RỘNG):
+- Thêm helper build_live_preview_b64() cho Studio Live Preview
+- Thêm helper estimate_default_scale_for_size() — tự bù scale cho ảnh nhỏ
+- Thêm helper find_rendered_image_for_item() (dùng seq_in_folder để map chính xác)
+- merge_final_with_adjusted giữ nguyên hành vi
+- Mọi API public cũ đều BẢO TOÀN (mode_web/drive/local/adjust import như cũ)
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import os
 import re
 import json
 import time
+import base64
 import shutil
 import hashlib
 import tempfile
@@ -85,7 +86,9 @@ def init_app_state():
         "web_scanned": [],
         "web_zip_path": "",
         "drive_zip_data": None,
+        "drive_zip_path": "",
         "local_zip_data": None,
+        "local_zip_path": "",
         "adjust_zip_path": "",
         "last_batch_manifest": [],
         "last_batch_cfg": {},
@@ -774,7 +777,7 @@ def show_preview(final_dir: Path, max_images: int = 6):
             try:
                 with Image.open(img_path) as img:
                     thumb = img.copy()
-                    thumb.thumbnail((300, 300), _get_resample_filter())
+                    thumb.thumbnail((360, 360), _get_resample_filter())
                     st.image(thumb, caption=img_path.name, use_container_width=True)
                     st.markdown(
                         f"<div class='preview-meta'>{img.width}×{img.height} · "
@@ -922,9 +925,135 @@ def merge_final_with_adjusted(final_dir: Path, adjusted_dir: Path,
             shutil.copy2(src, dst)
             if existed:
                 stats["overridden"] += 1
-                stats["kept"] -= 1  # đã đếm ở bước 1, giờ chuyển trạng thái
+                stats["kept"] -= 1
             else:
                 stats["added"] += 1
 
     stats["total"] = stats["kept"] + stats["overridden"] + stats["added"]
     return stats
+
+
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  v9.3 — STUDIO LIVE PREVIEW HELPERS                          ║
+# ║  Mở rộng (KHÔNG phá API cũ).                                 ║
+# ╚══════════════════════════════════════════════════════════════╝
+_STUDIO_PREVIEW_MAX = 720  # ảnh thumb cho live preview, đủ rõ trên desktop
+
+
+def estimate_default_scale_for_size(src_w: int, src_h: int,
+                                    target_w: int, target_h: int) -> int:
+    """
+    Tự động đề xuất scale (%) để ảnh không bị giãn khi nhỏ hơn target.
+    - Nếu ảnh ≥ target ở cả 2 chiều → scale 100 (không cần phóng).
+    - Nếu ảnh nhỏ hơn → đề xuất scale lên ~ tỉ lệ thiếu nhưng ≤ 130 để không vỡ nét.
+    """
+    if not src_w or not src_h or not target_w or not target_h:
+        return 100
+    if src_w >= target_w and src_h >= target_h:
+        return 100
+    ratio_w = target_w / max(src_w, 1)
+    ratio_h = target_h / max(src_h, 1)
+    needed = max(ratio_w, ratio_h) * 100
+    suggested = int(min(max(needed, 100), 130))
+    return suggested
+
+
+def find_rendered_image_for_item(item: dict, root: Path,
+                                 final_dir: Path, adjusted_dir: Path,
+                                 sizes: list) -> tuple[str, str]:
+    """
+    Tìm ảnh đã render thật sự — KHÔNG phải preview thumb.
+    Map theo seq_in_folder (1-based) để chính xác sau khi rename template.
+    Ưu tiên: ADJUSTED → FINAL → preview_path → source_path.
+    Trả về (path_str, status) với status ∈ {"adjusted","rendered","source"}.
+    """
+    folder_name = item.get("folder_name", "") or ""
+    original_name = item.get("original_name", "") or ""
+    seq = int(item.get("seq_in_folder", 0) or 0)
+    is_multi = isinstance(sizes, list) and len(sizes) > 1
+
+    size_label = ""
+    if sizes:
+        try:
+            w, h, m = sizes[0]
+            size_label = get_size_label(w, h, m)
+        except Exception:
+            size_label = ""
+
+    candidate_dirs: list[tuple[str, Path]] = []
+    if adjusted_dir and adjusted_dir.exists():
+        if is_multi and size_label:
+            candidate_dirs.append(("adjusted", adjusted_dir / size_label / folder_name))
+        candidate_dirs.append(("adjusted", adjusted_dir / folder_name))
+    if final_dir and final_dir.exists():
+        if is_multi and size_label:
+            candidate_dirs.append(("rendered", final_dir / size_label / folder_name))
+        candidate_dirs.append(("rendered", final_dir / folder_name))
+
+    for status, d in candidate_dirs:
+        if not d.exists() or not d.is_dir():
+            continue
+
+        # 1. khớp tên gốc (chưa rename)
+        for ext in (".jpg", ".jpeg", ".png", ".webp"):
+            p = d / f"{original_name}{ext}"
+            if p.exists() and p.stat().st_size > 0:
+                return str(p), status
+
+        # 2. dùng seq_in_folder map sang file thứ N (sau rename)
+        try:
+            files_sorted = sorted([
+                f for f in d.iterdir()
+                if f.is_file() and f.suffix.lower() in IMAGE_EXTENSIONS
+                and not f.name.startswith("__tmp_")
+                and f.stat().st_size > 0
+            ])
+            if seq and 1 <= seq <= len(files_sorted):
+                return str(files_sorted[seq - 1]), status
+            # 3. khớp original_name xuất hiện trong stem
+            if original_name:
+                for f in files_sorted:
+                    if original_name in f.stem:
+                        return str(f), status
+            # 4. fallback: file đầu tiên
+            if files_sorted:
+                return str(files_sorted[0]), status
+        except Exception:
+            pass
+
+    fallback = item.get("preview_path") or item.get("source_path") or ""
+    return fallback, "source"
+
+
+def build_live_preview_b64(image_path: str, max_size: int = _STUDIO_PREVIEW_MAX) -> str:
+    """
+    Đọc ảnh đã render xong, thumbnail giữ tỉ lệ → trả base64 JPEG để nhúng <img>.
+    Cache theo path+mtime để khỏi đọc lại nhiều lần.
+    """
+    if not image_path:
+        return ""
+    p = Path(image_path)
+    if not p.exists() or p.stat().st_size <= 0:
+        return ""
+
+    cache = st.session_state.setdefault("_studio_thumb_b64_cache", {})
+    cache_key = f"{p}|{p.stat().st_mtime_ns}|{max_size}"
+    if cache_key in cache:
+        return cache[cache_key]
+
+    try:
+        with Image.open(p) as img:
+            img = ImageOps.exif_transpose(img)
+            img = _convert_to_rgb(img)
+            img.thumbnail((max_size, max_size), _get_resample_filter())
+            buf = io.BytesIO()
+            img.save(buf, "JPEG", quality=85, optimize=True)
+            data = buf.getvalue()
+        b64 = base64.b64encode(data).decode("ascii")
+        data_uri = f"data:image/jpeg;base64,{b64}"
+        if len(cache) > 300:  # tránh phình
+            cache.clear()
+        cache[cache_key] = data_uri
+        return data_uri
+    except Exception:
+        return ""
