@@ -1,15 +1,10 @@
 """
-mode_adjust.py — Studio Scale v9.3 (LIVE PREVIEW UPGRADE)
+mode_adjust.py — Studio Scale v9.3.1 (UX & AUTO-RENDER FIX)
 ─────────────────────────────────────────────────────────
-Nâng cấp v9.3 (giữ NGUYÊN logic cũ, CHỈ MỞ RỘNG):
-- LIVE PREVIEW: kéo slider Scale/X/Y → ảnh GIÃN/DỊCH ngay tức thì bằng
-  CSS transform (scale + translate) trên thumbnail base64 — không phải
-  chờ render.
-- Bố cục TO RÕ: chữ ≥14px, ảnh max-height 500px, padding rộng.
-- Dual ZIP: TẢI ZIP GỐC (FINAL ngay sau render) + TẢI ZIP GỘP (đã sửa).
-- Banner "Vừa render xong" khi auto-switch.
-- FIX: Xử lý triệt để lỗi ghi đè ZIP gộp bằng cách tái cấu trúc exact_stem
-  trùng khớp 100% với file output từ template.
+- Tự động check "Cần sửa ảnh này" khi kéo slider.
+- Tự động RENDER trước khi tạo ZIP GỘP (nếu có ảnh đang chọn).
+- Fix CSS: nút disable sẽ hiển thị màu xám rõ ràng.
+- Ghi đè chính xác (Exact Stem) vào file ZIP gốc.
 """
 
 from __future__ import annotations
@@ -37,12 +32,28 @@ from utils import (
 )
 
 
-_SMALL_IMAGE_THRESHOLD = 600          # ảnh < 600px coi là nhỏ → cảnh báo
+_SMALL_IMAGE_THRESHOLD = 600
 _IMG_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+
+# ═════════════════════════════════════════════════════════════════════
+# CSS FIX (Sửa lỗi nút Disable vẫn hiện màu tím)
+# ═════════════════════════════════════════════════════════════════════
+st.markdown("""
+<style>
+.stButton > button:disabled, .stDownloadButton > button:disabled {
+    background: rgba(255, 255, 255, 0.05) !important;
+    color: #64748b !important;
+    cursor: not-allowed !important;
+    box-shadow: none !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    transform: none !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
 
 # ═════════════════════════════════════════════════════════════════════
-# HELPERS CHO LOGIC RENAME CHÍNH XÁC
+# HELPERS
 # ═════════════════════════════════════════════════════════════════════
 def _get_exact_stem_for_item(item: dict, manifest: list, cfg: dict) -> str:
     """Tái tạo chính xác tên file đã được đổi tên theo template để ghi đè đúng ảnh."""
@@ -83,7 +94,6 @@ def _get_exact_display_path(item: dict, exact_stem: str, final_dir: Path, adjust
 
     folder_name = item.get("folder_name", "")
     
-    # Check ADJUSTED first
     if adjusted_dir and adjusted_dir.exists():
         check_adj = adjusted_dir / size_label / folder_name if is_multi and size_label else adjusted_dir / folder_name
         if check_adj.exists():
@@ -92,7 +102,6 @@ def _get_exact_display_path(item: dict, exact_stem: str, final_dir: Path, adjust
                 if p.exists() and p.stat().st_size > 0:
                     return str(p), "adjusted"
                     
-    # Check FINAL
     if final_dir and final_dir.exists():
         check_fin = final_dir / size_label / folder_name if is_multi and size_label else final_dir / folder_name
         if check_fin.exists():
@@ -105,9 +114,6 @@ def _get_exact_display_path(item: dict, exact_stem: str, final_dir: Path, adjust
     return fallback, "source"
 
 
-# ═════════════════════════════════════════════════════════════════════
-# CÁC HELPERS KHÁC
-# ═════════════════════════════════════════════════════════════════════
 def _filtered_items(items, keyword, product_filter, status_filter):
     keyword = (keyword or "").strip().lower()
     output = []
@@ -220,6 +226,11 @@ def _ensure_default_state(item: dict, cfg: dict):
         st.session_state[sel_key] = _is_small_image(item)
 
 
+# Callbacks tự động tick vào ô Checkbox khi người dùng chạm vào Slider
+def _mark_item_selected(item_id: str):
+    st.session_state[f"sel_{item_id}"] = True
+
+
 # ═════════════════════════════════════════════════════════════════════
 # MAIN STUDIO
 # ═════════════════════════════════════════════════════════════════════
@@ -230,10 +241,8 @@ def render_adjustment_studio():
         "<div class='hero-card'>"
         "<h2 style='font-size:1.25rem !important'>🎚 Studio Scale</h2>"
         "<p style='font-size:0.95rem !important;line-height:1.65 !important'>"
-        "Tích chọn ảnh cần sửa · Scale + offset X/Y · "
-        "<b style='color:#fde68a'>Live Preview</b> giãn/nở theo slider · "
-        "Xuất ZIP gộp đầy đủ. Ảnh hiển thị bên dưới là "
-        "<b>ảnh đã render xong</b> (hoặc ảnh đã chỉnh nếu có)."
+        "Chỉ cần <b>kéo Slider</b> để chỉnh ảnh, hệ thống sẽ tự chọn ảnh đó. "
+        "Bấm <b>Tạo ZIP Gộp</b> để tự động Render và đóng gói chung với ảnh gốc."
         "</p></div>",
         unsafe_allow_html=True,
     )
@@ -380,7 +389,6 @@ def render_adjustment_studio():
 
         small_warn = _is_small_image(item)
 
-        # Trích xuất đúng tên ảnh đã render
         exact_stem = _get_exact_stem_for_item(item, manifest, cfg)
         display_path, display_status = _get_exact_display_path(
             item, exact_stem, final_dir, adjusted_dir, sizes_cfg
@@ -449,30 +457,34 @@ def render_adjustment_studio():
                 sc, xc, yc = st.columns(3)
                 with sc:
                     st.slider("Scale (%)", 60, 150,
-                              value=int(st.session_state[scale_key]), step=1, key=scale_key)
+                              value=int(st.session_state[scale_key]), step=1, key=scale_key,
+                              on_change=_mark_item_selected, args=(item_id,))
                 with xc:
                     st.slider("Lệch X", -100, 100,
-                              value=int(st.session_state[x_key]), step=1, key=x_key)
+                              value=int(st.session_state[x_key]), step=1, key=x_key,
+                              on_change=_mark_item_selected, args=(item_id,))
                 with yc:
                     st.slider("Lệch Y", -100, 100,
-                              value=int(st.session_state[y_key]), step=1, key=y_key)
+                              value=int(st.session_state[y_key]), step=1, key=y_key,
+                              on_change=_mark_item_selected, args=(item_id,))
 
                 rb1, rb2, rb3 = st.columns(3)
                 with rb1:
                     if st.button("↺ Reset", key=f"reset_{item_id}", use_container_width=True):
-                        st.session_state[scale_key] = int(item.get(
-                            "default_scale_pct", cfg.get("default_scale_pct", 100)
-                        ))
+                        st.session_state[scale_key] = int(item.get("default_scale_pct", cfg.get("default_scale_pct", 100)))
                         st.session_state[x_key] = 0
                         st.session_state[y_key] = 0
+                        st.session_state[sel_key] = True
                         st.rerun()
                 with rb2:
                     if st.button("➖ Thu nhỏ 5%", key=f"minus_{item_id}", use_container_width=True):
                         st.session_state[scale_key] = max(60, int(st.session_state[scale_key]) - 5)
+                        st.session_state[sel_key] = True
                         st.rerun()
                 with rb3:
                     if st.button("➕ Phóng 5%", key=f"plus_{item_id}", use_container_width=True):
                         st.session_state[scale_key] = min(150, int(st.session_state[scale_key]) + 5)
+                        st.session_state[sel_key] = True
                         st.rerun()
 
     # ═════ RENDER & XUẤT ZIP ═════
@@ -484,14 +496,14 @@ def render_adjustment_studio():
     unselected_items = [it for it in manifest if not st.session_state.get(f"sel_{it['id']}", False)]
 
     st.caption(
-        f"🎯 Sẽ render lại **{len(selected_items)}** ảnh đã chọn · "
+        f"🎯 Đang chọn **{len(selected_items)}** ảnh để sửa · "
         f"giữ nguyên **{len(unselected_items)}** ảnh từ batch gốc."
     )
 
     cb1, cb2 = st.columns(2)
     with cb1:
         do_render = st.button(
-            "🎨 RENDER ẢNH ĐÃ CHỌN",
+            "🎨 1. CHỈ RENDER ẢNH ĐÃ CHỌN",
             type="primary",
             use_container_width=True,
             key="adj_render_selected",
@@ -499,13 +511,13 @@ def render_adjustment_studio():
         )
     with cb2:
         do_export_full = st.button(
-            "📦 TẠO ZIP GỘP (đã sửa + chưa sửa)",
+            "📦 2. TẠO ZIP GỘP (Tự RENDER trước nếu có)",
+            type="primary",
             use_container_width=True,
             key="adj_export_full",
         )
 
-    # ───── RENDER ─────
-    if do_render and selected_items:
+    if do_render or do_export_full:
         if not root or not root.exists():
             st.error("❌ Thư mục batch đã bị xóa. Vui lòng chạy batch mới.")
             _render_zip_download_section(meta, root, final_dir)
@@ -513,75 +525,65 @@ def render_adjustment_studio():
             return
 
         adjusted_root = root / "ADJUSTED"
-        if adjusted_root.exists():
-            shutil.rmtree(adjusted_root, ignore_errors=True)
-        adjusted_root.mkdir(parents=True, exist_ok=True)
+        
+        # --- RENDER TRƯỚC (NẾU CÓ ẢNH ĐƯỢC CHỌN) ---
+        if selected_items:
+            if adjusted_root.exists():
+                shutil.rmtree(adjusted_root, ignore_errors=True)
+            adjusted_root.mkdir(parents=True, exist_ok=True)
 
-        progress = st.progress(0)
-        status = st.empty()
-        start_time = time.time()
+            progress = st.progress(0)
+            status = st.empty()
+            start_time = time.time()
 
-        for idx, item in enumerate(selected_items, start=1):
-            status.info(
-                f"[{idx}/{len(selected_items)}] {item.get('product', '-')} / "
-                f"{item.get('original_name', '-')}"
-            )
-            settings = {
-                "scale_pct": int(st.session_state.get(
-                    f"adj_scale_{item['id']}",
-                    item.get("default_scale_pct", cfg.get("default_scale_pct", 100)),
-                )),
-                "offset_x": int(st.session_state.get(f"adj_x_{item['id']}", 0)),
-                "offset_y": int(st.session_state.get(f"adj_y_{item['id']}", 0)),
-            }
-
-            # Khớp tên chính xác của file output thay vì bị nhầm do seq_in_folder
-            exact_stem = _get_exact_stem_for_item(item, manifest, cfg)
-
-            try:
-                resize_to_multi_sizes(
-                    Path(item["source_path"]),
-                    adjusted_root,
-                    item["folder_name"],
-                    exact_stem,
-                    cfg.get("sizes", []),
-                    scale_pct=int(cfg.get("default_scale_pct", 100)),
-                    quality=int(cfg.get("quality", 95)),
-                    export_format=cfg.get("export_format", "JPEG (.jpg)"),
-                    per_image_settings=settings,
-                    huge_image_mode=bool(cfg.get("huge_image_mode", True)),
+            for idx, item in enumerate(selected_items, start=1):
+                status.info(
+                    f"[{idx}/{len(selected_items)}] Đang xử lý: {item.get('original_name', '-')}"
                 )
-            except Exception as exc:
-                status.warning(f"⚠️ Lỗi render {item.get('original_name', '-')}: {exc}")
-            progress.progress(idx / max(len(selected_items), 1))
+                settings = {
+                    "scale_pct": int(st.session_state.get(f"adj_scale_{item['id']}", 100)),
+                    "offset_x": int(st.session_state.get(f"adj_x_{item['id']}", 0)),
+                    "offset_y": int(st.session_state.get(f"adj_y_{item['id']}", 0)),
+                }
 
-        duration = time.time() - start_time
-        adjusted_files = [
-            f for f in adjusted_root.rglob("*")
-            if f.is_file() and f.stat().st_size > 0
-        ]
+                exact_stem = _get_exact_stem_for_item(item, manifest, cfg)
 
-        status.success(f"🎉 Render xong {len(adjusted_files)} file đã chỉnh.")
-        show_preview(adjusted_root)
+                try:
+                    resize_to_multi_sizes(
+                        Path(item["source_path"]),
+                        adjusted_root,
+                        item["folder_name"],
+                        exact_stem,
+                        cfg.get("sizes", []),
+                        scale_pct=int(cfg.get("default_scale_pct", 100)),
+                        quality=int(cfg.get("quality", 95)),
+                        export_format=cfg.get("export_format", "JPEG (.jpg)"),
+                        per_image_settings=settings,
+                        huge_image_mode=bool(cfg.get("huge_image_mode", True)),
+                    )
+                except Exception as exc:
+                    status.warning(f"⚠️ Lỗi render {item.get('original_name', '-')}: {exc}")
+                progress.progress(idx / max(len(selected_items), 1))
 
-        st.session_state.pop("_studio_thumb_b64_cache", None)
-        st.session_state["_adjust_render_done"] = True
-        st.session_state["_adjusted_root"] = str(adjusted_root)
+            duration = time.time() - start_time
+            adjusted_files = [f for f in adjusted_root.rglob("*") if f.is_file() and f.stat().st_size > 0]
 
-        add_to_history(
-            "Adjust",
-            f"{meta.get('source_name', 'Studio')} · {len(selected_items)} ảnh",
-            len(adjusted_files),
-            " + ".join([get_size_label(w, h, m) for w, h, m in cfg.get("sizes", [])]),
-            duration,
-        )
-        st.rerun()
+            status.success(f"🎉 Đã Render xong {len(adjusted_files)} ảnh được chọn.")
+            
+            st.session_state.pop("_studio_thumb_b64_cache", None)
+            st.session_state["_adjust_render_done"] = True
+            st.session_state["_adjusted_root"] = str(adjusted_root)
 
-    # ───── ZIP GỘP ─────
-    if do_export_full:
-        if not root or not root.exists():
-            st.error("❌ Thư mục batch đã bị xóa.")
-        else:
+            add_to_history(
+                "Adjust",
+                f"Studio · {len(selected_items)} ảnh",
+                len(adjusted_files),
+                " + ".join([get_size_label(w, h, m) for w, h, m in cfg.get("sizes", [])]),
+                duration,
+            )
+
+        # --- GỘP & TẠO ZIP ---
+        if do_export_full:
             final_p = Path(meta.get("final_dir", str(root / "FINAL")))
             adjusted_p = Path(st.session_state.get("_adjusted_root", str(root / "ADJUSTED")))
 
@@ -594,15 +596,15 @@ def render_adjustment_studio():
                     stats = merge_final_with_adjusted(final_p, adjusted_p, merged_dir)
 
                     zip_path = root / f"FullExport_{meta.get('batch_id', 'batch')}.zip"
-                    make_zip(merged_dir, zip_path,
-                             compresslevel=int(cfg.get("zip_compression", 6)))
+                    make_zip(merged_dir, zip_path, compresslevel=int(cfg.get("zip_compression", 6)))
 
                 st.session_state.adjust_zip_path = str(zip_path)
                 st.success(
                     f"📦 ZIP gộp đã sẵn sàng — "
-                    f"giữ nguyên: **{stats['kept']}** · ghi đè: **{stats['overridden']}** · "
-                    f"tổng: **{stats['total']}** file."
+                    f"giữ nguyên: **{stats['kept']}** · ghi đè: **{stats['overridden']}** ảnh."
                 )
+
+        st.rerun()
 
     # ═════ KHU VỰC TẢI ZIP (LUÔN HIỂN THỊ TRONG STUDIO) ═════
     _render_zip_download_section(meta, root, final_dir)
@@ -611,7 +613,7 @@ def render_adjustment_studio():
 
 
 # ═════════════════════════════════════════════════════════════════════
-# ZIP DOWNLOADS — luôn hiển thị trong Studio (cả ZIP gốc & ZIP gộp)
+# ZIP DOWNLOADS
 # ═════════════════════════════════════════════════════════════════════
 def _render_zip_download_section(meta: dict, root: Path | None, final_dir: Path | None):
     st.markdown(
