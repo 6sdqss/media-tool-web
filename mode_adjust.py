@@ -186,7 +186,7 @@ def _live_preview_html(image_b64: str, target_w: int, target_h: int,
     if not image_b64:
         return "<div class='live-frame live-frame--empty'><span>⚠️ Không tìm thấy ảnh.</span></div>"
 
-    factor = max(60, min(150, int(scale_pct))) / 100.0
+    factor = max(60, min(200, int(scale_pct))) / 100.0
     tx = max(-100, min(100, int(offset_x_pct))) * 0.5
     ty = max(-100, min(100, int(offset_y_pct))) * 0.5
 
@@ -316,7 +316,10 @@ def render_adjustment_studio():
             key="adj_status",
         )
     with fc4:
-        per_page = st.selectbox("Mỗi trang", [6, 10, 16, 24], index=1, key="adj_pp")
+        _pp_opts = [6, 10, 16, 24, 50, 100, 500, 10000]
+        _pp_labels = ["6", "10", "16", "24", "50", "100", "500", "Tất cả"]
+        _pp_sel = st.selectbox("Mỗi trang", _pp_labels, index=1, key="adj_pp")
+        per_page = _pp_opts[_pp_labels.index(_pp_sel)]
 
     filtered = _filtered_items(manifest, keyword, product_filter, status_filter)
     if not filtered:
@@ -358,7 +361,7 @@ def render_adjustment_studio():
 
         bc1, bc2, bc3 = st.columns(3)
         with bc1:
-            bulk_scale = st.slider("Scale (%)", 60, 150, int(cfg.get("default_scale_pct", 100)), 1, key="bulk_scale")
+            bulk_scale = st.slider("Scale (%)", 60, 200, int(cfg.get("default_scale_pct", 100)), 1, key="bulk_scale")
         with bc2:
             bulk_x = st.slider("Lệch X", -100, 100, 0, 1, key="bulk_x")
         with bc3:
@@ -444,7 +447,7 @@ def render_adjustment_studio():
 
                 sc, xc, yc = st.columns(3)
                 with sc:
-                    st.slider("Scale (%)", 60, 150, value=int(st.session_state[scale_key]), step=1, key=scale_key, on_change=_mark_item_selected, args=(item_id,))
+                    st.slider("Scale (%)", 60, 200, value=int(st.session_state[scale_key]), step=1, key=scale_key, on_change=_mark_item_selected, args=(item_id,))
                 with xc:
                     st.slider("Lệch X", -100, 100, value=int(st.session_state[x_key]), step=1, key=x_key, on_change=_mark_item_selected, args=(item_id,))
                 with yc:
@@ -462,7 +465,7 @@ def render_adjustment_studio():
                         st.rerun()
                 with rb3:
                     if st.button("➕ Phóng 5%", key=f"plus_{item_id}", use_container_width=True):
-                        st.session_state[scale_key] = min(150, int(st.session_state[scale_key]) + 5); st.session_state[sel_key] = True
+                        st.session_state[scale_key] = min(200, int(st.session_state[scale_key]) + 5); st.session_state[sel_key] = True
                         st.rerun()
 
                 # Nút tải riêng từng tấm ảnh
