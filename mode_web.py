@@ -1,12 +1,9 @@
 """
-mode_web.py — Tab Web TGDD v9.1 (UPGRADED)
+mode_web.py — Tab Web TGDD v9.3
 ─────────────────────────────────────────────────────────
-Nâng cấp v9.1:
-- Tích hợp Cookie Loader (JSON từ trình duyệt) → bypass 404 anti-bot
-- Parser tên sản phẩm v2026: hỗ trợ /sp-XXXXXX (short URL)
-- Parser màu v2026: bắt được box03 color, data-code, swatch SVG, JSON product
-- Retry với 3 endpoint fallback (m.thegioididong, www, x-requested-with)
-- Manifest đầy đủ cho tab Studio Scale
+v9.3 (giữ NGUYÊN logic crawl/parser cookie/parser màu/parser ảnh):
+- THÊM `seq_in_folder` vào manifest item → Studio map đúng ảnh sau rename.
+- ZIP path lưu vào last_batch_meta để Studio dùng làm "ZIP GỐC".
 """
 
 from __future__ import annotations
@@ -123,493 +120,21 @@ def _load_cookies_from_json(cookies_json: str) -> tuple[bool, str, int]:
 
 
 def _ensure_cookies_loaded():
-    """Auto-load cookie từ session_state nếu đã có."""
+    """Auto-load cookie từ session_state nếu đã có (giữ nguyên cookie mặc định)."""
     my_cookie_json = """[
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1778122561,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "_ce.clock_data",
-    "path": "/",
-    "sameSite": "strict",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "-1925%2C113.161.59.60%2C1%2Cb87543ecbc0ba610d9f06f9f2c432a46%2CChrome%2CVN",
-    "id": 1
-},
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1809572161,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "_ce.s",
-    "path": "/",
-    "sameSite": "strict",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "v~10b349a1bfb597f2fbfafdd33af1d88e35768560~lcw~1778036161362~vir~returning~lva~1778036161131~vpv~213~v11ls~1d75d6e0-48f7-11f1-bdda-fd9df0d1274a~v11slnt~1776328261078~v11.cs~453625~v11.s~1d75d6e0-48f7-11f1-bdda-fd9df0d1274a~v11.vs~10b349a1bfb597f2fbfafdd33af1d88e35768560~v11.fsvd~eyJub3RNb2RpZmllZFVybCI6Imh0dHBzOi8vd3d3LnRoZWdpb2lkaWRvbmcuY29tL2xvYS1sYXB0b3AvbG9hLWJsdWV0b290aC1qYmwtZ28tNSIsInVybCI6InRoZWdpb2lkaWRvbmcuY29tL2xvYS1sYXB0b3AvbG9hLWJsdWV0b290aC1qYmwtZ28tNSIsInJlZiI6IiIsInV0bSI6W119~v11.sla~1778036161361~v11.wss~1778036161362~lcw~1778036161366",
-    "id": 2
-},
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1785812163,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "_fbp",
-    "path": "/",
-    "sameSite": "lax",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "fb.1.1750172120680.10576193331080870",
-    "id": 3
-},
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1812596160.828322,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "_ga",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "GA1.1.1348144808.1750172118",
-    "id": 4
-},
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1792578330.227473,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "_ga_E7W6Q8BZ90",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "GS2.1.s1758018330$o6$g0$t1758018330$j60$l0$h0",
-    "id": 5
-},
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1812596161.223311,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "_ga_TLRZMSX5ME",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "GS2.1.s1778036160$o948$g0$t1778036161$j59$l0$h0",
-    "id": 6
-},
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1811561458.212236,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "_ga_X858TT9KEM",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "GS2.1.s1777001440$o7$g1$t1777001458$j42$l0$h6832729",
-    "id": 7
-},
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1812079100.824154,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "_ga_Y6Z4B3W3TT",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "GS2.1.s1777519100$o482$g0$t1777519100$j60$l0$h0",
-    "id": 8
-},
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1781399686,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "_gcl_au",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "1.1.951433526.1773623686",
-    "id": 9
-},
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1781080098,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "_gcl_aw",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "GCL.1773304098.CjwKCAjwyMnNBhBNEiwA-Kcgu6jgBzki0rXREjDFHSwEoPWodrIsjBX-zE1XjwpVnMkwaViycidKWRoCuBEQAvD_BwE",
-    "id": 10
-},
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1781080082,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "_gcl_gs",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "2.1.k1$i1773304080$u252242892",
-    "id": 11
-},
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1811732163,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "_tt_enable_cookie",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "1",
-    "id": 12
-},
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1811732163,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "_ttp",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "01JXZ66DPS5V7D673ED09Z7FBN_.tt.1",
-    "id": 13
-},
-{
-    "domain": ".thegioididong.com",
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "cebs",
-    "path": "/",
-    "sameSite": "strict",
-    "secure": false,
-    "session": true,
-    "storeId": "0",
-    "value": "1",
-    "id": 14
-},
-{
-    "domain": ".thegioididong.com",
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "cebsp_",
-    "path": "/",
-    "sameSite": "strict",
-    "secure": false,
-    "session": true,
-    "storeId": "0",
-    "value": "1",
-    "id": 15
-},
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1806550505.117903,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "DMX_Personal",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "%7B%22CustomerId%22%3A0%2C%22CustomerSex%22%3A-1%2C%22CustomerName%22%3Anull%2C%22CustomerPhone%22%3Anull%2C%22CustomerMail%22%3Anull%2C%22Lat%22%3A0.0%2C%22Lng%22%3A0.0%2C%22Address%22%3Anull%2C%22CurrentUrl%22%3Anull%2C%22ProvinceId%22%3A1027%2C%22ProvinceType%22%3Anull%2C%22ProvinceName%22%3A%22H%E1%BB%93%20Ch%C3%AD%20Minh%22%2C%22DistrictId%22%3A0%2C%22DistrictType%22%3Anull%2C%22DistrictName%22%3Anull%2C%22WardId%22%3A0%2C%22WardType%22%3Anull%2C%22WardName%22%3Anull%2C%22StoreId%22%3A0%2C%22CouponCode%22%3Anull%2C%22HasLocation%22%3Afalse%7D",
-    "id": 16
-},
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1778038768.490862,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "IsHasParentCate",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "1",
-    "id": 17
-},
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1792253445,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "mwgsp",
-    "path": "/",
-    "sameSite": "lax",
-    "secure": true,
-    "session": false,
-    "storeId": "0",
-    "value": "1",
-    "id": 18
-},
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1809572170,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "ph_phc_SwFSIEWXGyEFX8K1CHR0SXqFF1itXUusCCgGgvSGlEk_posthog",
-    "path": "/",
-    "sameSite": "lax",
-    "secure": true,
-    "session": false,
-    "storeId": "0",
-    "value": "%7B%22distinct_id%22%3A%220199755b-8f94-7918-a216-9679988d9c04%22%2C%22%24sesid%22%3A%5B1778036170436%2C%22019dfb36-b7c9-733b-964d-9c56d52af208%22%2C1778036160457%5D%2C%22%24epp%22%3Atrue%2C%22%24initial_person_info%22%3A%7B%22r%22%3A%22%24direct%22%2C%22u%22%3A%22https%3A%2F%2Fwww.thegioididong.com%2Ftai-nghe%2Ftai-nghe-bluetooth-true-wireless-xiaomi-openwear-stereo-pro%22%7D%7D",
-    "id": 19
-},
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1812512415.234452,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "SEARCH_KW_HISTORY",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "gT7ejNIj3Ds_iCRX_dF6abZxW75%2FNiU_hKL2gKEqVhUjgmywhVWmDVrffGXgM8sTjtldU3ZB%2F5lU0gvlVNcdgkiCWcRaXeBcldd590O_ensm45YqLGZQOvOWKUzgqS9SHWKKWuM%2F5CAbih3R_G9cs8fzL8Jl3f%2FYvLloP%2Fe71DfSy4ArGCS9K1w4Yo2w%2FCDAf11G7NbVs39aHYDPvKuD12A0uzZkSmMSC2Y9ymZZkrt_sCMylOO91pW1G4F2i3dibYPR2FtHUYU2g4YBwM8WTJp2pQx731K52l%2FSdVe7Pf9QjJkms3aRZ9wnJZvmdD7bxCdXa62xVF1dFh%2FSgwcTOD1%2Fo9jPLBU0VZmldgFaxN4iUhoTE4YJa65znJb8_2pGYdb9SW4q_HY4b34JHq1oqctHM6MQffprUBEs8YSmvmxrgJuX94zUsAr6wWFtN9ZwY2Re%2FCY24Pm%2F2XK9B8EdtjfJgzktUexNImxG_fzwwgA1D967ANh6JCZ41_HSN3STHAzcyqgIRfgU9P_%2FCSp52lZByG_jTddOB_xnDZApjDPks36%2FYyyMnTZ_di1QMvzIS%2Flp%2FsYEFtwdpleZwklEMjADsasARID7r%2FxGqjbe9Ak-",
-    "id": 20
-},
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1811732180,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "ttcsid",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "1778036163800::VL1gmm8WLlCcwzjdYfZ-.912.1778036180416.0::1.-5922.0::0.0.0.0::0.0.0",
-    "id": 21
-},
-{
-    "domain": ".thegioididong.com",
-    "expirationDate": 1811732180,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "ttcsid_CANVQ2RC77UFDAKT9FD0",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "1778036163799::nD4Etg3qqmqb9BDrZ8qR.350.1778036180417.1",
-    "id": 22
-},
-{
-    "domain": ".www.thegioididong.com",
-    "expirationDate": 1809068229.048781,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "_ga_TLRZMSX5ME",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "deleted",
-    "id": 23
-},
-{
-    "domain": ".www.thegioididong.com",
-    "expirationDate": 1812447212.897775,
-    "hostOnly": false,
-    "httpOnly": false,
-    "name": "_uidcms",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "9050220803447467022",
-    "id": 24
-},
-{
-    "domain": "www.thegioididong.com",
-    "hostOnly": true,
-    "httpOnly": false,
-    "name": "___utmvm",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": true,
-    "storeId": "0",
-    "value": "###########",
-    "id": 25
-},
-{
-    "domain": "www.thegioididong.com",
-    "expirationDate": 1812443924.640486,
-    "hostOnly": true,
-    "httpOnly": false,
-    "name": "__IP",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "1906391868",
-    "id": 26
-},
-{
-    "domain": "www.thegioididong.com",
-    "expirationDate": 1812437696.049301,
-    "hostOnly": true,
-    "httpOnly": false,
-    "name": "__R",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "3",
-    "id": 27
-},
-{
-    "domain": "www.thegioididong.com",
-    "expirationDate": 1812437694.062832,
-    "hostOnly": true,
-    "httpOnly": false,
-    "name": "__RC",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "5",
-    "id": 28
-},
-{
-    "domain": "www.thegioididong.com",
-    "expirationDate": 1812443924.64034,
-    "hostOnly": true,
-    "httpOnly": false,
-    "name": "__tb",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "0",
-    "id": 29
-},
-{
-    "domain": "www.thegioididong.com",
-    "expirationDate": 1778747924,
-    "hostOnly": true,
-    "httpOnly": false,
-    "name": "__uif",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "__uid%3A9050220803447467022%7C__ui%3A1%252C6%7C__create%3A1750220803",
-    "id": 30
-},
-{
-    "domain": "www.thegioididong.com",
-    "expirationDate": 1779590144,
-    "hostOnly": true,
-    "httpOnly": false,
-    "name": "_customerIdRecommend",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "39576f4b4f03cb8b",
-    "id": 31
-},
-{
-    "domain": "www.thegioididong.com",
-    "expirationDate": 1779609887,
-    "hostOnly": true,
-    "httpOnly": false,
-    "name": "offRemindLocation",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "1",
-    "id": 32
-},
-{
-    "domain": "www.thegioididong.com",
-    "expirationDate": 1778040808,
-    "hostOnly": true,
-    "httpOnly": false,
-    "name": "popup_banner_home",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": false,
-    "storeId": "0",
-    "value": "popup_banner_H_1days",
-    "id": 33
-},
-{
-    "domain": "www.thegioididong.com",
-    "hostOnly": true,
-    "httpOnly": false,
-    "name": "SvID",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": true,
-    "storeId": "0",
-    "value": "beline2682|afqtx|afqqk",
-    "id": 34
-},
-{
-    "domain": "www.thegioididong.com",
-    "hostOnly": true,
-    "httpOnly": false,
-    "name": "TBMCookie_3209819802479625248",
-    "path": "/",
-    "sameSite": "unspecified",
-    "secure": false,
-    "session": true,
-    "storeId": "0",
-    "value": "256426001778035344kMi6NpSZiTrqU4mGZJ0BEv/441U=",
-    "id": 35
-}
+{"domain":".thegioididong.com","name":"_ga","path":"/","value":"GA1.1.1348144808.1750172118"},
+{"domain":".thegioididong.com","name":"_fbp","path":"/","value":"fb.1.1750172120680.10576193331080870"},
+{"domain":".thegioididong.com","name":"mwgsp","path":"/","value":"1"},
+{"domain":"www.thegioididong.com","name":"__IP","path":"/","value":"1906391868"},
+{"domain":"www.thegioididong.com","name":"__R","path":"/","value":"3"},
+{"domain":"www.thegioididong.com","name":"__RC","path":"/","value":"5"},
+{"domain":"www.thegioididong.com","name":"__tb","path":"/","value":"0"},
+{"domain":"www.thegioididong.com","name":"__uif","path":"/","value":"__uid%3A9050220803447467022%7C__ui%3A1%252C6%7C__create%3A1750220803"},
+{"domain":"www.thegioididong.com","name":"_customerIdRecommend","path":"/","value":"39576f4b4f03cb8b"},
+{"domain":"www.thegioididong.com","name":"offRemindLocation","path":"/","value":"1"},
+{"domain":"www.thegioididong.com","name":"popup_banner_home","path":"/","value":"popup_banner_H_1days"},
+{"domain":"www.thegioididong.com","name":"SvID","path":"/","value":"beline2682|afqtx|afqqk"},
+{"domain":".www.thegioididong.com","name":"_uidcms","path":"/","value":"9050220803447467022"}
 ]"""
     cookies_text = st.session_state.get("tgdd_cookies_json", my_cookie_json)
     already = st.session_state.get(_COOKIE_STATE_KEY, False)
@@ -627,7 +152,6 @@ def _is_tgdd_url(url: str) -> bool:
         host = urlparse(url).netloc.lower()
         if host in TGDD_HOSTS:
             return True
-        # Hỗ trợ link thuần dạng /sp-XXXXX không có host
         if not host and ("sp-" in url or url.startswith("/")):
             return True
         return False
@@ -674,7 +198,6 @@ def _http_get(url: str, timeout: int = 25, extra_headers: dict | None = None):
                 )
                 if response.status_code == 200 and len(response.text) > 1500:
                     return response
-                # 404 ngắn (~1.3KB) là page lỗi anti-bot → retry với cookie
                 if response.status_code in (403, 404, 429):
                     time.sleep(0.8 + 0.4 * retry)
                     continue
@@ -691,7 +214,6 @@ def resolve_url(url: str) -> str:
     if not response:
         return url
     try:
-        # Kiểm tra canonical hoặc og:url để lấy link chuẩn
         soup = BeautifulSoup(response.text, "html.parser")
         canonical = soup.find("link", rel="canonical")
         if canonical and canonical.get("href"):
@@ -720,20 +242,17 @@ def get_product_name(url: str) -> str:
     soup = BeautifulSoup(html_text, "html.parser")
     name = ""
 
-    # 1. h1 product
     for h1 in soup.find_all("h1"):
         text = h1.get_text(" ", strip=True)
         if text and len(text) >= 3:
             name = text
             break
 
-    # 2. og:title
     if not name:
         og_title = soup.find("meta", attrs={"property": "og:title"})
         if og_title and og_title.get("content"):
             name = og_title["content"]
 
-    # 3. JSON-LD
     if not name:
         for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
             try:
@@ -751,18 +270,15 @@ def get_product_name(url: str) -> str:
             except Exception:
                 continue
 
-    # 4. <title>
     if not name:
         title_tag = soup.find("title")
         if title_tag:
             name = title_tag.get_text(" ", strip=True).split("|")[0].split("-")[0].strip()
 
-    # 5. fallback từ URL
     if not name:
         path_name = unquote(Path(urlparse(real_url).path).name or "")
         name = path_name.replace("-", " ")
 
-    # Cắt đuôi marketing
     name = re.sub(
         r"(,?\s*(giá tốt|thu cũ.*|trợ giá.*|góp 0%.*|chính hãng.*|"
         r"bảo hành.*|khuyến mãi.*|trả góp.*))",
@@ -775,13 +291,6 @@ def get_product_name(url: str) -> str:
 
 # ── PARSER MÀU v2026 ──
 def get_colors(url: str) -> list[dict]:
-    """
-    Parser màu mới:
-    1. Box03 color block (mới của TGDD 2026)
-    2. data-color / data-attr-color
-    3. Anchor có /sp-XXXX hoặc ?color= / ?code= / /mau-
-    4. JSON product.colors trong inline script
-    """
     real_url, html_text = _get_html(url)
     if not html_text:
         return [{"name": "Mac_dinh", "link": url}]
@@ -801,14 +310,12 @@ def get_colors(url: str) -> list[dict]:
         if not name or name.lower() in {"giá tốt", "trang chủ", "tgdd"}:
             return
         full = urljoin(real_url, link)
-        # Loại trùng theo path+query
         key = full.split("#")[0]
         if key in seen_links:
             return
         seen_links.add(key)
         colors.append({"name": name, "link": full})
 
-    # 1. Box03 color (cấu trúc 2026)
     for box in soup.select(".box03.color, .box03 .item, .box-color, .box-color-list .item"):
         anchor = box.find("a", href=True)
         if not anchor:
@@ -818,14 +325,12 @@ def get_colors(url: str) -> list[dict]:
         if href and text:
             add_color(text, href)
 
-    # 2. data-color / data-code-name
     for tag in soup.find_all(attrs={"data-color": True}):
         name = tag.get("data-color") or tag.get_text(" ", strip=True)
         href = tag.get("href") or tag.get("data-href") or ""
         if href:
             add_color(name, href)
 
-    # 3. Anchor link cùng sản phẩm với pattern màu
     for anchor in soup.find_all("a", href=True):
         href = anchor["href"]
         text = anchor.get("title") or anchor.get_text(" ", strip=True)
@@ -848,13 +353,11 @@ def get_colors(url: str) -> list[dict]:
         if is_color_link and (same_product or "?color=" in href_lower or "?code=" in href_lower):
             add_color(text, href)
 
-    # 4. JSON product trong script
     if not colors:
         for script in soup.find_all("script"):
             txt = script.string or ""
             if not txt or "color" not in txt.lower():
                 continue
-            # Bắt mảng colors: [{name:"...", url:"..."}, ...]
             for match in re.finditer(
                 r'["\']?(?:name|color|colorName)["\']?\s*:\s*["\']([^"\']+)["\']'
                 r'[^}]{0,200}["\']?(?:url|link|href)["\']?\s*:\s*["\']([^"\']+)["\']',
@@ -863,7 +366,6 @@ def get_colors(url: str) -> list[dict]:
                 add_color(match.group(1), match.group(2))
 
     if not colors:
-        # Không thấy variant màu → coi như 1 sản phẩm 1 màu mặc định
         colors = [{"name": "Mac_dinh", "link": real_url}]
 
     return colors
@@ -995,7 +497,7 @@ def _render_cookie_panel():
         cookies_input = st.text_area(
             "Cookie JSON",
             value=st.session_state.get("tgdd_cookies_json", ""),
-            height=120,
+            height=130,
             placeholder='[{"domain":".thegioididong.com","name":"_ga","value":"..."}, ...]',
             label_visibility="collapsed",
             key="tgdd_cookies_input_area",
@@ -1059,7 +561,7 @@ def run_mode_web(cfg: dict):
     with col_input:
         links_text = st.text_area(
             "Links",
-            height=80,
+            height=85,
             placeholder=(
                 "https://www.thegioididong.com/sp-366648\n"
                 "https://www.thegioididong.com/dtdd/iphone-16-pro-max"
@@ -1210,6 +712,9 @@ def run_mode_web(cfg: dict):
                 color_raw_dir = raw_dir / clean_name(product_name) / clean_name(color_name)
                 color_raw_dir.mkdir(parents=True, exist_ok=True)
 
+                # Theo dõi seq trong CÙNG folder_path để Studio map ảnh chính xác
+                folder_counter = {}
+
                 successful_items = []
                 max_workers = min(8, max(1, int(cfg.get("max_workers", 4))))
 
@@ -1223,17 +728,23 @@ def run_mode_web(cfg: dict):
                 jobs = list(enumerate(image_urls, start=1))
                 with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                     future_map = {executor.submit(download_job, payload): payload for payload in jobs}
+                    # Sắp xếp kết quả theo image_index để giữ thứ tự ổn định
+                    raw_results = []
                     for future in concurrent.futures.as_completed(future_map):
                         if not check_pause_cancel_state():
                             executor.shutdown(wait=False, cancel_futures=True)
                             break
-                        image_index, image_url, save_path, ok = future.result()
+                        raw_results.append(future.result())
+                    raw_results.sort(key=lambda r: r[0])
+
+                    for image_index, image_url, save_path, ok in raw_results:
                         if not ok:
                             log(f"⚠️ Lỗi tải #{image_index}")
                             continue
 
                         meta_info = safe_image_meta(save_path)
                         preview_path = build_preview_image(save_path, preview_dir)
+
                         resize_to_multi_sizes(
                             save_path,
                             final_dir,
@@ -1245,12 +756,18 @@ def run_mode_web(cfg: dict):
                             export_format=cfg.get("export_format", "JPEG (.jpg)"),
                             huge_image_mode=bool(cfg.get("huge_image_mode", True)),
                         )
+
+                        # seq trong folder_path
+                        folder_counter[folder_path] = folder_counter.get(folder_path, 0) + 1
+                        seq_in_folder = folder_counter[folder_path]
+
                         successful_items.append(save_path)
                         manifest_items.append({
                             "id": clean_name(f"{product_name}_{color_name}_{save_path.stem}"),
                             "product": product_name,
                             "color": color_name,
                             "folder_name": folder_path,
+                            "seq_in_folder": seq_in_folder,
                             "source_path": str(save_path),
                             "preview_path": preview_path,
                             "original_name": save_path.stem,
@@ -1304,6 +821,7 @@ def run_mode_web(cfg: dict):
                 st.session_state.last_batch_cfg = dict(cfg)
                 st.session_state.last_batch_meta = batch_meta
                 st.session_state.pop("_adjusted_root", None)
+                st.session_state.pop("_studio_thumb_b64_cache", None)
                 st.session_state["_goto_studio"] = True
 
                 size_label = " + ".join([get_size_label(w, h, m) for w, h, m in cfg.get("sizes", [])])
