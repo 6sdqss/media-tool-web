@@ -1303,11 +1303,13 @@ def run_mode_web(cfg: dict):
                 st.session_state.last_batch_manifest = manifest_items
                 st.session_state.last_batch_cfg = dict(cfg)
                 st.session_state.last_batch_meta = batch_meta
+                st.session_state.pop("_adjusted_root", None)
+                st.session_state["_goto_studio"] = True
 
                 size_label = " + ".join([get_size_label(w, h, m) for w, h, m in cfg.get("sizes", [])])
                 product_names = list({t["product"] for t in selected_tasks})
                 add_to_history("Web", ", ".join(product_names[:3]), len(output_files), size_label, duration)
-                st.info("💡 Sang tab **Studio** để chỉnh các ảnh nhỏ bị giãn rồi xuất ZIP gộp.")
+                st.success("🎯 Render xong! Đang chuyển sang **tab Studio** để bạn xem & chỉnh ảnh...")
             else:
                 status_placeholder.error("Không có ảnh nào tải/xử lý thành công.")
 
