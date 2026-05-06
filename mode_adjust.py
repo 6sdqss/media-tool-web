@@ -1,10 +1,10 @@
 """
-mode_adjust.py — Studio Scale v9.3.1 (UX & AUTO-RENDER FIX)
+mode_adjust.py — Studio Scale v9.3.2 (CACHE & RENDER FIX)
 ─────────────────────────────────────────────────────────
 - Tự động check "Cần sửa ảnh này" khi kéo slider.
-- Tự động RENDER trước khi tạo ZIP GỘP (nếu có ảnh đang chọn).
-- Fix CSS: nút disable sẽ hiển thị màu xám rõ ràng.
-- Ghi đè chính xác (Exact Stem) vào file ZIP gốc.
+- FIX: Trình duyệt lưu cache file ZIP cũ -> Đổi tên file ZIP bằng timestamp mỗi lần xuất.
+- FIX: Nút disable sẽ hiển thị màu xám rõ ràng.
+- Đảm bảo ghi đè chính xác (Exact Stem) 100% khớp với file xuất từ các tab trước.
 """
 
 from __future__ import annotations
@@ -582,7 +582,7 @@ def render_adjustment_studio():
                 duration,
             )
 
-        # --- GỘP & TẠO ZIP ---
+        # --- GỘP & TẠO ZIP VỚI TÊN FILE MỚI CHỐNG CACHE ---
         if do_export_full:
             final_p = Path(meta.get("final_dir", str(root / "FINAL")))
             adjusted_p = Path(st.session_state.get("_adjusted_root", str(root / "ADJUSTED")))
@@ -591,11 +591,13 @@ def render_adjustment_studio():
                 st.error("❌ Thư mục FINAL gốc không tồn tại.")
             else:
                 with st.spinner("Đang gộp ảnh đã chỉnh + ảnh gốc..."):
-                    merged_dir = root / f"MERGED_{int(time.time())}"
+                    # Luôn tạo một folder gộp và một file ZIP mang tên duy nhất (timestamp)
+                    unique_id = int(time.time())
+                    merged_dir = root / f"MERGED_{unique_id}"
                     merged_dir.mkdir(parents=True, exist_ok=True)
                     stats = merge_final_with_adjusted(final_p, adjusted_p, merged_dir)
 
-                    zip_path = root / f"FullExport_{meta.get('batch_id', 'batch')}.zip"
+                    zip_path = root / f"FullExport_{meta.get('batch_id', 'batch')}_{unique_id}.zip"
                     make_zip(merged_dir, zip_path, compresslevel=int(cfg.get("zip_compression", 6)))
 
                 st.session_state.adjust_zip_path = str(zip_path)
