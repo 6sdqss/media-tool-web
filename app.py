@@ -579,16 +579,38 @@ hr {
 @media (max-width: 640px) {
     .app-header h1 { font-size: 0.95rem !important; }
     .app-header p { font-size: 0.66rem !important; }
+    .stTabs [data-baseweb="tab-list"] {
+        position: sticky; top: 0; z-index: 99;
+        background: rgba(11, 11, 18, 0.95) !important;
+        backdrop-filter: blur(12px);
+    }
     .stTabs [data-baseweb="tab"] {
-        padding: 0 8px !important;
-        font-size: 11px !important;
+        padding: 0 10px !important;
+        font-size: 11.5px !important;
+        min-height: 36px !important;
     }
     .login-shell { padding: 0 12px; }
-    .stButton > button { font-size: 11.5px !important; min-height: 32px !important; }
+    .stButton > button { font-size: 12px !important; min-height: 38px !important; }
+    .stDownloadButton > button { min-height: 42px !important; font-size: 12.5px !important; }
     [data-testid="stMetricValue"] { font-size: 1rem !important; }
+    section[data-testid="stSidebar"] { width: 86vw !important; }
+    .block-container { padding: 0.4rem !important; }
+    /* Touch-friendly slider */
+    .stSlider [role="slider"] { width: 22px !important; height: 22px !important; }
+    /* Easier tap on checkbox */
+    .stCheckbox label { min-height: 32px !important; align-items: center !important; }
 }
-</style>
-""", unsafe_allow_html=True)
+
+/* ─── TABLET ─── */
+@media (min-width: 641px) and (max-width: 1024px) {
+    .block-container { max-width: 760px !important; }
+}
+
+/* ─── HIGHLIGHT BORDER cho ảnh đang chọn ─── */
+div[data-testid="stVerticalBlockBorderWrapper"]:has(input[type="checkbox"]:checked) {
+    border-color: rgba(251, 191, 36, 0.55) !important;
+    box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.2);
+}
 
 
 # ══════════════════════════════════════════════════════════════
