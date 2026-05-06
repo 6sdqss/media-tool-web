@@ -884,3 +884,47 @@ def render_session_stats():
         f"</div>",
         unsafe_allow_html=True,
     )
+
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  MERGE HELPER — v9.1                                         ║
+# ║  Gộp FINAL gốc + ADJUSTED, ưu tiên ảnh đã chỉnh khi trùng.   ║
+# ╚══════════════════════════════════════════════════════════════╝
+def merge_final_with_adjusted(final_dir: Path, adjusted_dir: Path,
+                              merged_dir: Path) -> dict:
+    """
+    Gộp FINAL gốc + ADJUSTED thành thư mục mới.
+    - File trong adjusted_dir sẽ ghi đè file cùng relative path trong final_dir.
+    - File chỉ có ở final_dir → giữ nguyên (kept).
+    """
+    merged_dir.mkdir(parents=True, exist_ok=True)
+    stats = {"kept": 0, "overridden": 0, "added": 0, "total": 0}
+
+    # 1. Copy toàn bộ final → merged
+    if final_dir.exists():
+        for src in final_dir.rglob("*"):
+            if not src.is_file() or src.stat().st_size <= 0:
+                continue
+            rel = src.relative_to(final_dir)
+            dst = merged_dir / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            stats["kept"] += 1
+
+    # 2. Ghi đè / bổ sung từ adjusted
+    if adjusted_dir.exists():
+        for src in adjusted_dir.rglob("*"):
+            if not src.is_file() or src.stat().st_size <= 0:
+                continue
+            rel = src.relative_to(adjusted_dir)
+            dst = merged_dir / rel
+            existed = dst.exists()
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            if existed:
+                stats["overridden"] += 1
+                stats["kept"] -= 1  # đã đếm ở bước 1, giờ chuyển trạng thái
+            else:
+                stats["added"] += 1
+
+    stats["total"] = stats["kept"] + stats["overridden"] + stats["added"]
+    return stats
