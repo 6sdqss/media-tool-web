@@ -1,12 +1,13 @@
 """
-mode_adjust.py — Studio Scale v9.1 (UPGRADED)
+mode_adjust.py — Studio Scale v9.2 (UPGRADED)
 ─────────────────────────────────────────────────────────
-Nâng cấp v9.1:
-- Sau resize: tích chọn từng ảnh cần sửa (checkbox + select-all)
-- Render lại CHỈ ảnh đã chọn
-- Xuất ZIP GỘP: ảnh chưa sửa (FINAL gốc) + ảnh đã sửa (ADJUSTED)
-- Bộ lọc nâng cao: chỉ ảnh đã sửa / chưa sửa / tất cả
-- Highlight ảnh nhỏ (cảnh báo bị giãn)
+Nâng cấp v9.2:
+- HIỂN THỊ ĐÚNG ảnh đã render (FINAL) hoặc ảnh đã sửa (ADJUSTED), thay
+  vì ảnh "góc" preview như trước.
+- Thumbnail luôn căn giữa hoàn toàn (object-fit: contain, mọi tỉ lệ).
+- Bố cục Studio: chữ to hơn, padding rộng, dễ nhìn trên cả desktop & mobile.
+- Banner "Vừa render xong từ tab khác" khi auto-switch.
+- Sau khi render lại trong Studio: tự reload để hiện ảnh mới.
 """
 
 from __future__ import annotations
@@ -33,6 +34,76 @@ from utils import (
 
 
 _SMALL_IMAGE_THRESHOLD = 600  # ảnh < 600px coi là nhỏ — cảnh báo bị giãn
+
+# Phần mở rộng file ảnh hợp lệ
+_IMG_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+
+
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  HELPER — TÌM ẢNH ĐÃ RENDER ĐỂ HIỂN THỊ                     ║
+# ╚══════════════════════════════════════════════════════════════╝
+def _find_rendered_image(item: dict, root: Path,
+                         final_dir: Path, adjusted_dir: Path,
+                         sizes: list) -> tuple[str, str]:
+    """
+    Tìm đường dẫn ảnh đã render thực tế để hiển thị trong Studio.
+    Ưu tiên: ADJUSTED (đã sửa) → FINAL (đã render xong) → preview → source.
+    Trả về: (path_str, status) với status ∈ {"adjusted", "rendered", "source"}.
+    """
+    folder_name = item.get("folder_name", "")
+    original_name = item.get("original_name", "")
+    is_multi = isinstance(sizes, list) and len(sizes) > 1
+
+    # Ưu tiên size đầu tiên (thường là size chuẩn TGDD 1020×680)
+    size_label = ""
+    if sizes:
+        try:
+            w, h, m = sizes[0]
+            size_label = get_size_label(w, h, m)
+        except Exception:
+            size_label = ""
+
+    candidate_dirs = []
+    # 1. ADJUSTED (đã chỉnh tay)
+    if adjusted_dir and adjusted_dir.exists():
+        if is_multi and size_label:
+            candidate_dirs.append(("adjusted", adjusted_dir / size_label / folder_name))
+        candidate_dirs.append(("adjusted", adjusted_dir / folder_name))
+        candidate_dirs.append(("adjusted", adjusted_dir))
+    # 2. FINAL (đã render xong từ batch gốc)
+    if final_dir and final_dir.exists():
+        if is_multi and size_label:
+            candidate_dirs.append(("rendered", final_dir / size_label / folder_name))
+        candidate_dirs.append(("rendered", final_dir / folder_name))
+        candidate_dirs.append(("rendered", final_dir))
+
+    for status, d in candidate_dirs:
+        if not d.exists() or not d.is_dir():
+            continue
+        # 1. khớp tên gốc
+        for ext in (".jpg", ".jpeg", ".png", ".webp"):
+            p = d / f"{original_name}{ext}"
+            if p.exists() and p.stat().st_size > 0:
+                return str(p), status
+        # 2. file đầu tiên chứa original_name (sau rename template)
+        try:
+            for f in sorted(d.iterdir()):
+                if (f.is_file() and f.suffix.lower() in _IMG_EXT
+                        and original_name and original_name in f.stem):
+                    return str(f), status
+        except Exception:
+            pass
+        # 3. file đầu tiên trong thư mục folder_name
+        try:
+            for f in sorted(d.rglob("*")):
+                if f.is_file() and f.suffix.lower() in _IMG_EXT and f.stat().st_size > 0:
+                    return str(f), status
+        except Exception:
+            pass
+
+    # 4. Fallback cuối: preview hoặc source
+    fallback = item.get("preview_path") or item.get("source_path") or ""
+    return fallback, "source"
 
 
 def _filtered_items(items, keyword, product_filter, status_filter):
@@ -80,11 +151,16 @@ def _is_small_image(item) -> bool:
 
 
 def render_adjustment_studio():
+    # Wrap toàn bộ Studio để CSS .studio-wrap có hiệu lực (chữ to, layout rộng)
+    st.markdown("<div class='studio-wrap'>", unsafe_allow_html=True)
+
     st.markdown(
         "<div class='hero-card'>"
-        "<h2>🎚 Studio Scale</h2>"
-        "<p>Tích chọn ảnh cần sửa · Scale + offset X/Y · Xuất ZIP gộp đầy đủ.</p>"
-        "</div>",
+        "<h2 style='font-size:1.15rem !important'>🎚 Studio Scale</h2>"
+        "<p style='font-size:0.86rem !important'>"
+        "Tích chọn ảnh cần sửa · Scale + offset X/Y · Xuất ZIP gộp đầy đủ. "
+        "Ảnh hiển thị bên dưới là <b>ảnh đã render xong</b> (hoặc ảnh đã chỉnh nếu có)."
+        "</p></div>",
         unsafe_allow_html=True,
     )
 
@@ -94,7 +170,18 @@ def render_adjustment_studio():
 
     if not manifest:
         st.info("⚠️ Chưa có batch nào để chỉnh. Hãy chạy ở tab Web TGDD, Drive hoặc Local ZIP trước.")
+        st.markdown("</div>", unsafe_allow_html=True)
         return
+
+    # Banner "vừa render xong" nếu được auto-redirect tới
+    if st.session_state.pop("_studio_just_arrived", False):
+        st.markdown(
+            "<div class='studio-fresh-banner'>"
+            "✅ <b>Vừa render xong</b> — đã chuyển bạn sang Studio để chỉnh ảnh nếu cần. "
+            "Ảnh hiển thị bên dưới là kết quả thực tế đã được resize."
+            "</div>",
+            unsafe_allow_html=True,
+        )
 
     render_batch_kpis(meta)
 
@@ -112,6 +199,13 @@ def render_adjustment_studio():
         f"</div>",
         unsafe_allow_html=True,
     )
+
+    # Thư mục FINAL & ADJUSTED — dùng để tìm ảnh đã render
+    root = Path(meta.get("root", ""))
+    final_dir = Path(meta.get("final_dir", str(root / "FINAL"))) if meta.get("root") else None
+    adjusted_dir = Path(st.session_state.get("_adjusted_root", str(root / "ADJUSTED"))) \
+        if meta.get("root") else None
+    sizes_cfg = cfg.get("sizes", [])
 
     product_names = sorted(list({item.get("product", "") for item in manifest if item.get("product")}))
 
@@ -132,6 +226,7 @@ def render_adjustment_studio():
     filtered = _filtered_items(manifest, keyword, product_filter, status_filter)
     if not filtered:
         st.warning("Không có ảnh phù hợp bộ lọc.")
+        st.markdown("</div>", unsafe_allow_html=True)
         return
 
     total_pages = max((len(filtered) - 1) // per_page + 1, 1)
@@ -205,6 +300,11 @@ def render_adjustment_studio():
 
         small_warn = _is_small_image(item)
 
+        # Tìm ảnh thực tế đã render để hiển thị
+        display_path, display_status = _find_rendered_image(
+            item, root, final_dir, adjusted_dir, sizes_cfg
+        )
+
         with st.container(border=True):
             top_cb, top_warn = st.columns([3, 2])
             with top_cb:
@@ -216,16 +316,33 @@ def render_adjustment_studio():
             with top_warn:
                 if small_warn:
                     st.markdown(
-                        "<span style='color:#f87171;font-size:0.7rem;font-weight:700'>"
+                        "<span style='color:#f87171;font-size:0.8rem;font-weight:700'>"
                         "⚠️ ẢNH NHỎ — DỄ BỊ GIÃN</span>",
                         unsafe_allow_html=True,
                     )
 
-            left_col, right_col = st.columns([1, 2.4])
+            left_col, right_col = st.columns([1, 2.2])
 
             with left_col:
-                st.image(item.get("preview_path") or item["source_path"],
-                         use_container_width=True)
+                # Pill trạng thái: rendered / adjusted / source
+                pill_class = {
+                    "adjusted": ("pill-adjusted", "🎯 Đã chỉnh"),
+                    "rendered": ("pill-rendered", "✅ Đã render"),
+                    "source":   ("pill-source",   "📷 Ảnh gốc"),
+                }[display_status]
+
+                st.markdown(
+                    f"<div style='text-align:center;margin-bottom:6px'>"
+                    f"<span class='studio-status-pill {pill_class[0]}'>{pill_class[1]}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+                if display_path and Path(display_path).exists():
+                    st.image(display_path, use_container_width=True)
+                else:
+                    st.warning("⚠️ Không tìm thấy ảnh hiển thị.")
+
                 st.markdown(
                     f"<div class='preview-meta'>"
                     f"📐 {item.get('source_width', 0)}×{item.get('source_height', 0)}<br>"
@@ -237,10 +354,10 @@ def render_adjustment_studio():
             with right_col:
                 display_name = item.get('original_name', '-')
                 st.markdown(
-                    f"<div style='font-size:0.78rem;margin-bottom:4px'>"
-                    f"<b style='color:#fff'>{item.get('product', '-')}</b> · "
+                    f"<div class='studio-img-title'>"
+                    f"<b>{item.get('product', '-')}</b> · "
                     f"<span style='color:#a78bfa'>{item.get('color', '-')}</span><br>"
-                    f"<code style='font-size:0.66rem;color:#94a3b8'>{display_name}</code>"
+                    f"<code>{display_name}</code>"
                     f"</div>",
                     unsafe_allow_html=True
                 )
@@ -287,14 +404,14 @@ def render_adjustment_studio():
 
     # ───────── RENDER PHẦN ĐÃ CHỌN ─────────
     if do_render and selected_items:
-        root = Path(meta.get("root", ""))
-        if not root.exists():
+        root_p = Path(meta.get("root", ""))
+        if not root_p.exists():
             st.error("❌ Thư mục batch đã bị xóa. Vui lòng chạy batch mới.")
+            st.markdown("</div>", unsafe_allow_html=True)
             return
 
-        adjusted_root = root / "ADJUSTED"
-        adjusted_root.mkdir(parents=True, exist_ok=True)
-        # Mỗi lần render → reset thư mục để tránh trùng
+        adjusted_root = root_p / "ADJUSTED"
+        # Reset ADJUSTED để tránh lẫn ảnh cũ
         if adjusted_root.exists():
             shutil.rmtree(adjusted_root, ignore_errors=True)
         adjusted_root.mkdir(parents=True, exist_ok=True)
@@ -349,22 +466,24 @@ def render_adjustment_studio():
             " + ".join([get_size_label(w, h, m) for w, h, m in cfg.get("sizes", [])]),
             duration,
         )
+        # Reload để các thumbnail trên hiện ngay ảnh ADJUSTED mới
+        st.rerun()
 
     # ───────── XUẤT ZIP GỘP ─────────
     if do_export_full:
-        root = Path(meta.get("root", ""))
-        final_dir = Path(meta.get("final_dir", str(root / "FINAL")))
-        adjusted_root = Path(st.session_state.get("_adjusted_root", str(root / "ADJUSTED")))
+        root_p = Path(meta.get("root", ""))
+        final_p = Path(meta.get("final_dir", str(root_p / "FINAL")))
+        adjusted_p = Path(st.session_state.get("_adjusted_root", str(root_p / "ADJUSTED")))
 
-        if not final_dir.exists():
+        if not final_p.exists():
             st.error("❌ Thư mục FINAL gốc không tồn tại.")
         else:
             with st.spinner("Đang gộp ảnh đã chỉnh + ảnh gốc..."):
-                merged_dir = root / f"MERGED_{int(time.time())}"
+                merged_dir = root_p / f"MERGED_{int(time.time())}"
                 merged_dir.mkdir(parents=True, exist_ok=True)
-                stats = merge_final_with_adjusted(final_dir, adjusted_root, merged_dir)
+                stats = merge_final_with_adjusted(final_p, adjusted_p, merged_dir)
 
-                zip_path = root / f"FullExport_{meta.get('batch_id', 'batch')}.zip"
+                zip_path = root_p / f"FullExport_{meta.get('batch_id', 'batch')}.zip"
                 make_zip(merged_dir, zip_path,
                          compresslevel=int(cfg.get("zip_compression", 6)))
 
@@ -395,3 +514,5 @@ def render_adjustment_studio():
             )
         finally:
             download_handle.close()
+
+    st.markdown("</div>", unsafe_allow_html=True)
