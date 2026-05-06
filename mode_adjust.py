@@ -1,10 +1,11 @@
 """
-mode_adjust.py — Studio Scale v9.3.2 (CACHE & RENDER FIX)
+mode_adjust.py — Studio Scale v9.4 (UI EXPORT & RENDER FIX)
 ─────────────────────────────────────────────────────────
-- Tự động check "Cần sửa ảnh này" khi kéo slider.
-- FIX: Trình duyệt lưu cache file ZIP cũ -> Đổi tên file ZIP bằng timestamp mỗi lần xuất.
-- FIX: Nút disable sẽ hiển thị màu xám rõ ràng.
-- Đảm bảo ghi đè chính xác (Exact Stem) 100% khớp với file xuất từ các tab trước.
+- FIX CRITICAL: Đọc trực tiếp thư mục FINAL để lấy tên file chính xác,
+  chống lỗi ghi đè lên nhau khi Render nhiều ảnh.
+- FEATURE: Nút Tải về (Download) riêng lẻ cho từng ảnh ngay trên giao diện.
+- UX/UI: Thiết kế lại toàn bộ khu vực "XUẤT FILE & TẢI VỀ" thành 3 bước
+  rõ ràng, trực quan, dễ hiểu.
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ _SMALL_IMAGE_THRESHOLD = 600
 _IMG_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
 # ═════════════════════════════════════════════════════════════════════
-# CSS FIX (Sửa lỗi nút Disable vẫn hiện màu tím)
+# CSS FIX
 # ═════════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
@@ -48,41 +49,57 @@ st.markdown("""
     border: 1px solid rgba(255, 255, 255, 0.1) !important;
     transform: none !important;
 }
+.export-panel {
+    background: rgba(21, 21, 31, 0.7);
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 10px;
+}
 </style>
 """, unsafe_allow_html=True)
 
 
 # ═════════════════════════════════════════════════════════════════════
-# HELPERS
+# HELPERS - FIX LỖI TÊN FILE
 # ═════════════════════════════════════════════════════════════════════
-def _get_exact_stem_for_item(item: dict, manifest: list, cfg: dict) -> str:
-    """Tái tạo chính xác tên file đã được đổi tên theo template để ghi đè đúng ảnh."""
-    folder_items = [it for it in manifest if it.get("folder_name") == item.get("folder_name")]
-    folder_items.sort(key=lambda x: str(x.get("original_name", "")))
+def _get_exact_stem_for_item(item: dict, final_dir: Path, sizes_cfg: list, cfg: dict) -> str:
+    """Đọc thẳng vào thư mục FINAL để lấy ĐÚNG tên file đã xuất, chống ghi đè nhầm."""
+    folder_name = item.get("folder_name", "")
+    seq = int(item.get("seq_in_folder", 1))
     
-    true_idx = 1
-    for i, it in enumerate(folder_items):
-        if it["id"] == item["id"]:
-            true_idx = i + 1
-            break
-            
-    folder_parts = [p for p in Path(item.get("folder_name", "")).parts if p]
-    product_part = folder_parts[0] if len(folder_parts) >= 1 else "image"
-    color_part = folder_parts[1] if len(folder_parts) >= 2 else ""
-    product_part = re.sub(r"\s+", "_", product_part).strip("_")
-    color_part = re.sub(r"\s+", "_", color_part).strip("_")
-
+    if final_dir and final_dir.exists():
+        is_multi = isinstance(sizes_cfg, list) and len(sizes_cfg) > 1
+        check_dir = final_dir
+        if is_multi and sizes_cfg:
+            try:
+                w, h, m = sizes_cfg[0]
+                check_dir = final_dir / get_size_label(w, h, m)
+            except Exception:
+                pass
+        check_dir = check_dir / folder_name
+        
+        # Sắp xếp các file trong FINAL và bốc đúng file theo thứ tự seq
+        if check_dir.exists():
+            files = sorted([f for f in check_dir.iterdir() if f.is_file() and not f.name.startswith("__tmp_")])
+            if 1 <= seq <= len(files):
+                return files[seq - 1].stem
+                
+    # Fallback nếu không tìm thấy thư mục FINAL
+    product_part = re.sub(r"\s+", "_", item.get("product", "image")).strip("_")
+    color_part = re.sub(r"\s+", "_", item.get("color", "")).strip("_")
     return apply_name_template(
         cfg.get("template", "{name}_{nn}"),
         name=product_part,
         color=color_part,
-        index=true_idx,
+        index=seq,
         original=item.get("original_name", "")
     )
 
 
-def _get_exact_display_path(item: dict, exact_stem: str, final_dir: Path, adjusted_dir: Path, sizes_cfg: list):
-    """Tìm đúng file đã render (ADJUSTED hoặc FINAL) dựa trên exact_stem."""
+def _get_exact_display_path(item: dict, final_dir: Path, adjusted_dir: Path, sizes_cfg: list, cfg: dict):
+    """Tìm đúng đường dẫn hiển thị (Ưu tiên ADJUSTED -> FINAL -> Source)."""
+    exact_stem = _get_exact_stem_for_item(item, final_dir, sizes_cfg, cfg)
     is_multi = isinstance(sizes_cfg, list) and len(sizes_cfg) > 1
     size_label = ""
     if sizes_cfg:
@@ -226,7 +243,6 @@ def _ensure_default_state(item: dict, cfg: dict):
         st.session_state[sel_key] = _is_small_image(item)
 
 
-# Callbacks tự động tick vào ô Checkbox khi người dùng chạm vào Slider
 def _mark_item_selected(item_id: str):
     st.session_state[f"sel_{item_id}"] = True
 
@@ -242,7 +258,7 @@ def render_adjustment_studio():
         "<h2 style='font-size:1.25rem !important'>🎚 Studio Scale</h2>"
         "<p style='font-size:0.95rem !important;line-height:1.65 !important'>"
         "Chỉ cần <b>kéo Slider</b> để chỉnh ảnh, hệ thống sẽ tự chọn ảnh đó. "
-        "Bấm <b>Tạo ZIP Gộp</b> để tự động Render và đóng gói chung với ảnh gốc."
+        "Sau đó lướt xuống cuối trang để <b>Tạo ZIP Gộp</b> và Tải về."
         "</p></div>",
         unsafe_allow_html=True,
     )
@@ -252,18 +268,14 @@ def render_adjustment_studio():
     meta = st.session_state.get("last_batch_meta", {})
 
     if not manifest:
-        st.info(
-            "⚠️ Chưa có batch nào để chỉnh. Hãy chạy ở tab "
-            "**Web TGDD**, **Drive** hoặc **Local ZIP** trước."
-        )
+        st.info("⚠️ Chưa có batch nào để chỉnh. Hãy chạy ở tab **Web**, **Drive** hoặc **Local ZIP** trước.")
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
     if st.session_state.pop("_studio_just_arrived", False):
         st.markdown(
             "<div class='studio-fresh-banner'>"
-            "✅ <b>Vừa render xong</b> — đã chuyển bạn sang Studio để xem & chỉnh ảnh. "
-            "Ảnh hiển thị bên dưới là <b>kết quả thực tế đã được resize</b>. "
+            "✅ <b>Vừa render xong</b> — Ảnh hiển thị bên dưới là <b>kết quả thực tế đã được resize</b>. "
             "Kéo slider để xem ảnh giãn/nở ngay."
             "</div>",
             unsafe_allow_html=True,
@@ -287,9 +299,7 @@ def render_adjustment_studio():
 
     root = Path(meta.get("root", "")) if meta.get("root") else None
     final_dir = Path(meta.get("final_dir", str((root or Path(".")) / "FINAL"))) if root else None
-    adjusted_dir = Path(st.session_state.get(
-        "_adjusted_root", str((root or Path(".")) / "ADJUSTED")
-    )) if root else None
+    adjusted_dir = Path(st.session_state.get("_adjusted_root", str((root or Path(".")) / "ADJUSTED"))) if root else None
     sizes_cfg = cfg.get("sizes", [])
 
     main_target_w, main_target_h = 1020, 680
@@ -322,7 +332,6 @@ def render_adjustment_studio():
     filtered = _filtered_items(manifest, keyword, product_filter, status_filter)
     if not filtered:
         st.warning("Không có ảnh phù hợp bộ lọc.")
-        _render_zip_download_section(meta, root, final_dir)
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
@@ -360,14 +369,12 @@ def render_adjustment_studio():
 
         bc1, bc2, bc3 = st.columns(3)
         with bc1:
-            bulk_scale = st.slider("Scale (%)", 60, 150,
-                                   int(cfg.get("default_scale_pct", 100)), 1, key="bulk_scale")
+            bulk_scale = st.slider("Scale (%)", 60, 150, int(cfg.get("default_scale_pct", 100)), 1, key="bulk_scale")
         with bc2:
             bulk_x = st.slider("Lệch X", -100, 100, 0, 1, key="bulk_x")
         with bc3:
             bulk_y = st.slider("Lệch Y", -100, 100, 0, 1, key="bulk_y")
-        if st.button("⚡ Áp dụng cho trang & tự tích chọn",
-                     use_container_width=True, key="adj_bulk_btn"):
+        if st.button("⚡ Áp dụng cho trang & tự tích chọn", use_container_width=True, key="adj_bulk_btn"):
             _apply_bulk_to_items(page_items, bulk_scale, bulk_x, bulk_y, also_select=True)
             st.rerun()
 
@@ -389,16 +396,13 @@ def render_adjustment_studio():
 
         small_warn = _is_small_image(item)
 
-        exact_stem = _get_exact_stem_for_item(item, manifest, cfg)
-        display_path, display_status = _get_exact_display_path(
-            item, exact_stem, final_dir, adjusted_dir, sizes_cfg
-        )
+        display_path, display_status = _get_exact_display_path(item, final_dir, adjusted_dir, sizes_cfg, cfg)
         image_b64 = build_live_preview_b64(display_path)
 
         pill_map = {
             "adjusted": ("pill-adjusted", "🎯 Đã chỉnh"),
-            "rendered": ("pill-rendered", "✅ Đã render"),
-            "source":   ("pill-source",   "📷 Ảnh gốc"),
+            "rendered": ("pill-rendered", "✅ Đã render (Gốc)"),
+            "source":   ("pill-source",   "📷 Ảnh nguồn"),
         }
         pill_class, pill_label = pill_map.get(display_status, pill_map["source"])
         pill_html = f"<span class='studio-status-pill {pill_class}'>{pill_label}</span>"
@@ -406,16 +410,11 @@ def render_adjustment_studio():
         with st.container(border=True):
             top_cb, top_warn = st.columns([3, 2])
             with top_cb:
-                st.checkbox(
-                    "✏️ Cần sửa ảnh này",
-                    value=st.session_state[sel_key],
-                    key=sel_key,
-                )
+                st.checkbox("✏️ Cần sửa ảnh này", value=st.session_state[sel_key], key=sel_key)
             with top_warn:
                 if small_warn:
                     st.markdown(
-                        "<span style='color:#f87171;font-size:0.95rem;font-weight:700'>"
-                        "⚠️ ẢNH NHỎ — DỄ BỊ GIÃN</span>",
+                        "<span style='color:#f87171;font-size:0.95rem;font-weight:700'>⚠️ ẢNH NHỎ — DỄ BỊ GIÃN</span>",
                         unsafe_allow_html=True,
                     )
 
@@ -424,13 +423,10 @@ def render_adjustment_studio():
             with left_col:
                 live_html = _live_preview_html(
                     image_b64=image_b64,
-                    target_w=main_target_w,
-                    target_h=main_target_h,
+                    target_w=main_target_w, target_h=main_target_h,
                     scale_pct=int(st.session_state[scale_key]),
-                    offset_x_pct=int(st.session_state[x_key]),
-                    offset_y_pct=int(st.session_state[y_key]),
-                    status_pill_html=pill_html,
-                    status_label=pill_label,
+                    offset_x_pct=int(st.session_state[x_key]), offset_y_pct=int(st.session_state[y_key]),
+                    status_pill_html=pill_html, status_label=pill_label,
                 )
                 st.markdown(live_html, unsafe_allow_html=True)
 
@@ -438,7 +434,7 @@ def render_adjustment_studio():
                     f"<div class='preview-meta'>"
                     f"📐 <b>{item.get('source_width', 0)}×{item.get('source_height', 0)}</b> "
                     f"&nbsp;·&nbsp; 💾 {readable_file_size(item.get('source_size_bytes', 0))} "
-                    f"&nbsp;·&nbsp; 🎯 Đầu ra <b>{main_target_w}×{main_target_h}</b>"
+                    f"&nbsp;·&nbsp; 🎯 Ra <b>{main_target_w}×{main_target_h}</b>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
@@ -447,8 +443,7 @@ def render_adjustment_studio():
                 display_name = item.get("original_name", "-")
                 st.markdown(
                     f"<div class='studio-img-title'>"
-                    f"<b>{item.get('product', '-')}</b> · "
-                    f"<span style='color:#a78bfa'>{item.get('color', '-')}</span><br>"
+                    f"<b>{item.get('product', '-')}</b> · <span style='color:#a78bfa'>{item.get('color', '-')}</span><br>"
                     f"<code>{display_name}</code>"
                     f"</div>",
                     unsafe_allow_html=True,
@@ -456,62 +451,70 @@ def render_adjustment_studio():
 
                 sc, xc, yc = st.columns(3)
                 with sc:
-                    st.slider("Scale (%)", 60, 150,
-                              value=int(st.session_state[scale_key]), step=1, key=scale_key,
-                              on_change=_mark_item_selected, args=(item_id,))
+                    st.slider("Scale (%)", 60, 150, value=int(st.session_state[scale_key]), step=1, key=scale_key, on_change=_mark_item_selected, args=(item_id,))
                 with xc:
-                    st.slider("Lệch X", -100, 100,
-                              value=int(st.session_state[x_key]), step=1, key=x_key,
-                              on_change=_mark_item_selected, args=(item_id,))
+                    st.slider("Lệch X", -100, 100, value=int(st.session_state[x_key]), step=1, key=x_key, on_change=_mark_item_selected, args=(item_id,))
                 with yc:
-                    st.slider("Lệch Y", -100, 100,
-                              value=int(st.session_state[y_key]), step=1, key=y_key,
-                              on_change=_mark_item_selected, args=(item_id,))
+                    st.slider("Lệch Y", -100, 100, value=int(st.session_state[y_key]), step=1, key=y_key, on_change=_mark_item_selected, args=(item_id,))
 
                 rb1, rb2, rb3 = st.columns(3)
                 with rb1:
                     if st.button("↺ Reset", key=f"reset_{item_id}", use_container_width=True):
                         st.session_state[scale_key] = int(item.get("default_scale_pct", cfg.get("default_scale_pct", 100)))
-                        st.session_state[x_key] = 0
-                        st.session_state[y_key] = 0
-                        st.session_state[sel_key] = True
+                        st.session_state[x_key] = 0; st.session_state[y_key] = 0; st.session_state[sel_key] = True
                         st.rerun()
                 with rb2:
                     if st.button("➖ Thu nhỏ 5%", key=f"minus_{item_id}", use_container_width=True):
-                        st.session_state[scale_key] = max(60, int(st.session_state[scale_key]) - 5)
-                        st.session_state[sel_key] = True
+                        st.session_state[scale_key] = max(60, int(st.session_state[scale_key]) - 5); st.session_state[sel_key] = True
                         st.rerun()
                 with rb3:
                     if st.button("➕ Phóng 5%", key=f"plus_{item_id}", use_container_width=True):
-                        st.session_state[scale_key] = min(150, int(st.session_state[scale_key]) + 5)
-                        st.session_state[sel_key] = True
+                        st.session_state[scale_key] = min(150, int(st.session_state[scale_key]) + 5); st.session_state[sel_key] = True
                         st.rerun()
 
-    # ═════ RENDER & XUẤT ZIP ═════
-    st.divider()
-    st.markdown('<div class="sec-title">🚀 Render ảnh đã chọn & xuất ZIP</div>',
-                unsafe_allow_html=True)
+                # Nút tải từng ảnh
+                st.markdown("<hr style='margin: 10px 0; border-color: rgba(139,92,246,0.15);'>", unsafe_allow_html=True)
+                if display_path and Path(display_path).exists():
+                    with open(display_path, "rb") as file_data:
+                        file_bytes = file_data.read()
+                        st.download_button(
+                            label=f"📥 TẢI TẤM NÀY ({pill_label.split(' ', 1)[1]})",
+                            data=file_bytes,
+                            file_name=Path(display_path).name,
+                            mime="image/jpeg",
+                            use_container_width=True,
+                            key=f"dl_single_btn_{item_id}"
+                        )
+
+    # ═════ KHU VỰC XUẤT FILE & TẢI VỀ MỚI ═════
+    st.markdown("""
+        <div class="export-panel">
+            <h2 style="margin-top:0; color:#fff; font-size:1.4rem;">🚀 BƯỚC CUỐI: XUẤT FILE & TẢI VỀ</h2>
+            <p style="color:#cbd5e1; font-size:0.95rem;">
+                <b>Hướng dẫn:</b> Hãy bấm <b>[Bước 1]</b> để phần mềm áp dụng các thông số bạn vừa kéo. 
+                Sau đó bấm <b>[Bước 2]</b> để đóng gói nó cùng với các ảnh gốc thành 1 file ZIP và tải về máy.
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
 
     selected_items = [it for it in manifest if st.session_state.get(f"sel_{it['id']}", False)]
-    unselected_items = [it for it in manifest if not st.session_state.get(f"sel_{it['id']}", False)]
-
-    st.caption(
-        f"🎯 Đang chọn **{len(selected_items)}** ảnh để sửa · "
-        f"giữ nguyên **{len(unselected_items)}** ảnh từ batch gốc."
-    )
-
-    cb1, cb2 = st.columns(2)
-    with cb1:
+    
+    col_step1, col_step2 = st.columns(2)
+    
+    with col_step1:
+        st.markdown("<h4 style='color:#a78bfa; margin-bottom: 5px;'>▶ BƯỚC 1: RENDER</h4>", unsafe_allow_html=True)
         do_render = st.button(
-            "🎨 1. CHỈ RENDER ẢNH ĐÃ CHỌN",
+            f"🎨 ÁP DỤNG ĐIỀU CHỈNH ({len(selected_items)} ảnh)",
             type="primary",
             use_container_width=True,
             key="adj_render_selected",
             disabled=(len(selected_items) == 0),
         )
-    with cb2:
+
+    with col_step2:
+        st.markdown("<h4 style='color:#a78bfa; margin-bottom: 5px;'>▶ BƯỚC 2: TẠO ZIP GỘP</h4>", unsafe_allow_html=True)
         do_export_full = st.button(
-            "📦 2. TẠO ZIP GỘP (Tự RENDER trước nếu có)",
+            "📦 ĐÓNG GÓI ZIP (Ảnh đã sửa + Ảnh gốc)",
             type="primary",
             use_container_width=True,
             key="adj_export_full",
@@ -520,13 +523,12 @@ def render_adjustment_studio():
     if do_render or do_export_full:
         if not root or not root.exists():
             st.error("❌ Thư mục batch đã bị xóa. Vui lòng chạy batch mới.")
-            _render_zip_download_section(meta, root, final_dir)
             st.markdown("</div>", unsafe_allow_html=True)
             return
 
         adjusted_root = root / "ADJUSTED"
         
-        # --- RENDER TRƯỚC (NẾU CÓ ẢNH ĐƯỢC CHỌN) ---
+        # --- RENDER ẢNH ---
         if selected_items:
             if adjusted_root.exists():
                 shutil.rmtree(adjusted_root, ignore_errors=True)
@@ -537,16 +539,15 @@ def render_adjustment_studio():
             start_time = time.time()
 
             for idx, item in enumerate(selected_items, start=1):
-                status.info(
-                    f"[{idx}/{len(selected_items)}] Đang xử lý: {item.get('original_name', '-')}"
-                )
+                status.info(f"[{idx}/{len(selected_items)}] Đang xử lý: {item.get('original_name', '-')}")
                 settings = {
                     "scale_pct": int(st.session_state.get(f"adj_scale_{item['id']}", 100)),
                     "offset_x": int(st.session_state.get(f"adj_x_{item['id']}", 0)),
                     "offset_y": int(st.session_state.get(f"adj_y_{item['id']}", 0)),
                 }
 
-                exact_stem = _get_exact_stem_for_item(item, manifest, cfg)
+                # Lấy tên file CHÍNH XÁC
+                exact_stem = _get_exact_stem_for_item(item, final_dir, sizes_cfg, cfg)
 
                 try:
                     resize_to_multi_sizes(
@@ -575,14 +576,11 @@ def render_adjustment_studio():
             st.session_state["_adjusted_root"] = str(adjusted_root)
 
             add_to_history(
-                "Adjust",
-                f"Studio · {len(selected_items)} ảnh",
-                len(adjusted_files),
-                " + ".join([get_size_label(w, h, m) for w, h, m in cfg.get("sizes", [])]),
-                duration,
+                "Adjust", f"Studio · {len(selected_items)} ảnh", len(adjusted_files),
+                " + ".join([get_size_label(w, h, m) for w, h, m in cfg.get("sizes", [])]), duration,
             )
 
-        # --- GỘP & TẠO ZIP VỚI TÊN FILE MỚI CHỐNG CACHE ---
+        # --- TẠO ZIP GỘP CHỐNG LƯU CACHE CŨ ---
         if do_export_full:
             final_p = Path(meta.get("final_dir", str(root / "FINAL")))
             adjusted_p = Path(st.session_state.get("_adjusted_root", str(root / "ADJUSTED")))
@@ -591,7 +589,6 @@ def render_adjustment_studio():
                 st.error("❌ Thư mục FINAL gốc không tồn tại.")
             else:
                 with st.spinner("Đang gộp ảnh đã chỉnh + ảnh gốc..."):
-                    # Luôn tạo một folder gộp và một file ZIP mang tên duy nhất (timestamp)
                     unique_id = int(time.time())
                     merged_dir = root / f"MERGED_{unique_id}"
                     merged_dir.mkdir(parents=True, exist_ok=True)
@@ -601,37 +598,12 @@ def render_adjustment_studio():
                     make_zip(merged_dir, zip_path, compresslevel=int(cfg.get("zip_compression", 6)))
 
                 st.session_state.adjust_zip_path = str(zip_path)
-                st.success(
-                    f"📦 ZIP gộp đã sẵn sàng — "
-                    f"giữ nguyên: **{stats['kept']}** · ghi đè: **{stats['overridden']}** ảnh."
-                )
+                st.success(f"📦 ZIP gộp đã sẵn sàng — Ghi đè: **{stats['overridden']}** ảnh đã sửa | Giữ nguyên: **{stats['kept']}** ảnh gốc.")
 
         st.rerun()
 
-    # ═════ KHU VỰC TẢI ZIP (LUÔN HIỂN THỊ TRONG STUDIO) ═════
-    _render_zip_download_section(meta, root, final_dir)
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-# ═════════════════════════════════════════════════════════════════════
-# ZIP DOWNLOADS
-# ═════════════════════════════════════════════════════════════════════
-def _render_zip_download_section(meta: dict, root: Path | None, final_dir: Path | None):
-    st.markdown(
-        '<div class="sec-title">📥 Tải ZIP (cả khi chưa chỉnh)</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        "<div class='guide-box' style='font-size:0.95rem !important'>"
-        "🔵 <b>ZIP GỐC</b> = tải ngay batch vừa render xong (chưa qua Studio).<br>"
-        "🟢 <b>ZIP GỘP</b> = tải sau khi nhấn nút <b>TẠO ZIP GỘP</b> ở trên — "
-        "ảnh đã chỉnh sẽ ghi đè ảnh gốc, ảnh chưa chỉnh giữ nguyên."
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
+    # ═════ BƯỚC 3: TẢI ZIP VỀ MÁY ═════
+    st.markdown("<h4 style='color:#a78bfa; margin-top: 20px; margin-bottom: 5px;'>▶ BƯỚC 3: TẢI FILE ZIP</h4>", unsafe_allow_html=True)
     col_orig, col_merged = st.columns(2)
 
     with col_orig:
@@ -650,13 +622,8 @@ def _render_zip_download_section(meta: dict, root: Path | None, final_dir: Path 
         if handle_orig:
             try:
                 size_text = readable_file_size(Path(zip_path_orig).stat().st_size)
-                st.markdown(
-                    f"<div class='summary-card' style='border-color:rgba(99,102,241,0.4)'>"
-                    f"📦 <b>ZIP GỐC</b> · {size_text}</div>",
-                    unsafe_allow_html=True,
-                )
                 st.download_button(
-                    label="📥 TẢI ZIP GỐC (FINAL)",
+                    label=f"⬇️ TẢI ZIP GỐC (Chỉ chứa ảnh mặc định - {size_text})",
                     data=handle_orig,
                     file_name=Path(zip_path_orig).name,
                     mime="application/zip",
@@ -665,8 +632,6 @@ def _render_zip_download_section(meta: dict, root: Path | None, final_dir: Path 
                 )
             finally:
                 handle_orig.close()
-        else:
-            st.info("Chưa có ZIP gốc — vào tab nguồn (Web/Drive/Local) tải lại để tạo.")
 
     with col_merged:
         zip_path_merged = st.session_state.get("adjust_zip_path", "")
@@ -674,13 +639,8 @@ def _render_zip_download_section(meta: dict, root: Path | None, final_dir: Path 
         if handle_merged:
             try:
                 size_text = readable_file_size(Path(zip_path_merged).stat().st_size)
-                st.markdown(
-                    f"<div class='summary-card'>"
-                    f"📦 <b>ZIP GỘP</b> · {size_text}</div>",
-                    unsafe_allow_html=True,
-                )
                 st.download_button(
-                    label="📥 TẢI ZIP GỘP (đã sửa + chưa sửa)",
+                    label=f"⬇️ TẢI ZIP GỘP (Chứa ảnh đã điều chỉnh - {size_text})",
                     data=handle_merged,
                     file_name=Path(zip_path_merged).name,
                     mime="application/zip",
@@ -691,4 +651,6 @@ def _render_zip_download_section(meta: dict, root: Path | None, final_dir: Path 
             finally:
                 handle_merged.close()
         else:
-            st.info("Chưa có ZIP gộp — bấm **TẠO ZIP GỘP** sau khi render ảnh đã chọn.")
+            st.info("💡 Bạn cần bấm [BƯỚC 2: TẠO ZIP GỘP] để tải toàn bộ ảnh đã sửa về máy.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
