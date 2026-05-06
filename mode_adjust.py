@@ -23,7 +23,6 @@ import streamlit as st
 
 from utils import (
     add_to_history,
-    batch_rename_with_template,
     build_live_preview_b64,
     estimate_default_scale_for_size,
     find_rendered_image_for_item,
@@ -92,14 +91,6 @@ def _is_small_image(item) -> bool:
 def _live_preview_html(image_b64: str, target_w: int, target_h: int,
                        scale_pct: int, offset_x_pct: int, offset_y_pct: int,
                        status_pill_html: str, status_label: str) -> str:
-    """
-    Render preview LIVE: ảnh đã render được nhúng base64, áp transform
-    `scale + translate` để giả lập real-time hiệu ứng kéo slider.
-
-    - target_w/target_h dùng để giữ aspect-ratio khung canvas (giống size đầu ra).
-    - scale_pct: 60..150 → factor 0.6..1.5
-    - offset_x/y: -100..100 → translate %  (chia 2 để hợp với engine resize)
-    """
     if not image_b64:
         return (
             "<div class='live-frame live-frame--empty'>"
@@ -108,10 +99,9 @@ def _live_preview_html(image_b64: str, target_w: int, target_h: int,
         )
 
     factor = max(60, min(150, int(scale_pct))) / 100.0
-    tx = max(-100, min(100, int(offset_x_pct))) * 0.5   # %
-    ty = max(-100, min(100, int(offset_y_pct))) * 0.5   # %
+    tx = max(-100, min(100, int(offset_x_pct))) * 0.5
+    ty = max(-100, min(100, int(offset_y_pct))) * 0.5
 
-    # Aspect-ratio khung
     if target_w and target_h:
         aspect = f"{int(target_w)} / {int(target_h)}"
     else:
@@ -137,7 +127,6 @@ def _live_preview_html(image_b64: str, target_w: int, target_h: int,
 
 
 def _ensure_default_state(item: dict, cfg: dict):
-    """Khởi tạo state slider/checkbox 1 lần, đề xuất scale tự động cho ảnh nhỏ."""
     item_id = item["id"]
     scale_key = f"adj_scale_{item_id}"
     x_key = f"adj_x_{item_id}"
@@ -145,7 +134,6 @@ def _ensure_default_state(item: dict, cfg: dict):
     sel_key = f"sel_{item_id}"
 
     if scale_key not in st.session_state:
-        # Đề xuất scale dựa trên size đầu tiên + kích thước nguồn
         sizes = cfg.get("sizes", [])
         target_w = target_h = 0
         if sizes:
@@ -158,7 +146,6 @@ def _ensure_default_state(item: dict, cfg: dict):
             target_w, target_h,
         )
         default_scale = int(item.get("default_scale_pct", cfg.get("default_scale_pct", 100)))
-        # Ưu tiên đề xuất nếu ảnh nhỏ (suggested > default), tránh giãn vỡ
         st.session_state[scale_key] = max(default_scale, suggested) if _is_small_image(item) else default_scale
 
     if x_key not in st.session_state:
@@ -173,7 +160,6 @@ def _ensure_default_state(item: dict, cfg: dict):
 # MAIN STUDIO
 # ═════════════════════════════════════════════════════════════════════
 def render_adjustment_studio():
-    # Wrap toàn bộ Studio để CSS .studio-wrap có hiệu lực
     st.markdown("<div class='studio-wrap'>", unsafe_allow_html=True)
 
     st.markdown(
@@ -200,7 +186,6 @@ def render_adjustment_studio():
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    # Banner "vừa render xong" nếu được auto-redirect tới
     if st.session_state.pop("_studio_just_arrived", False):
         st.markdown(
             "<div class='studio-fresh-banner'>"
@@ -213,7 +198,6 @@ def render_adjustment_studio():
 
     render_batch_kpis(meta)
 
-    # Đếm trạng thái
     total = len(manifest)
     selected_count = sum(1 for it in manifest if st.session_state.get(f"sel_{it['id']}", False))
     small_count = sum(1 for it in manifest if _is_small_image(it))
@@ -228,7 +212,6 @@ def render_adjustment_studio():
         unsafe_allow_html=True,
     )
 
-    # Thư mục FINAL & ADJUSTED
     root = Path(meta.get("root", "")) if meta.get("root") else None
     final_dir = Path(meta.get("final_dir", str((root or Path(".")) / "FINAL"))) if root else None
     adjusted_dir = Path(st.session_state.get(
@@ -236,7 +219,6 @@ def render_adjustment_studio():
     )) if root else None
     sizes_cfg = cfg.get("sizes", [])
 
-    # Size đầu tiên — dùng để render khung Live Preview giữ aspect-ratio
     main_target_w, main_target_h = 1020, 680
     if sizes_cfg:
         try:
@@ -267,7 +249,6 @@ def render_adjustment_studio():
     filtered = _filtered_items(manifest, keyword, product_filter, status_filter)
     if not filtered:
         st.warning("Không có ảnh phù hợp bộ lọc.")
-        # Vẫn hiện khu vực ZIP gốc kể cả khi lọc rỗng
         _render_zip_download_section(meta, root, final_dir)
         st.markdown("</div>", unsafe_allow_html=True)
         return
@@ -335,7 +316,6 @@ def render_adjustment_studio():
 
         small_warn = _is_small_image(item)
 
-        # Tìm ảnh ĐÃ RENDER thật để live-preview
         display_path, display_status = find_rendered_image_for_item(
             item, root, final_dir, adjusted_dir, sizes_cfg
         )
@@ -347,9 +327,7 @@ def render_adjustment_studio():
             "source":   ("pill-source",   "📷 Ảnh gốc"),
         }
         pill_class, pill_label = pill_map.get(display_status, pill_map["source"])
-        pill_html = (
-            f"<span class='studio-status-pill {pill_class}'>{pill_label}</span>"
-        )
+        pill_html = f"<span class='studio-status-pill {pill_class}'>{pill_label}</span>"
 
         with st.container(border=True):
             top_cb, top_warn = st.columns([3, 2])
@@ -369,7 +347,6 @@ def render_adjustment_studio():
 
             left_col, right_col = st.columns([1.05, 1.6])
 
-            # ───── LIVE PREVIEW (TRÁI) ─────
             with left_col:
                 live_html = _live_preview_html(
                     image_b64=image_b64,
@@ -392,7 +369,6 @@ def render_adjustment_studio():
                     unsafe_allow_html=True,
                 )
 
-            # ───── SLIDERS (PHẢI) ─────
             with right_col:
                 display_name = item.get("original_name", "-")
                 st.markdown(
@@ -415,7 +391,6 @@ def render_adjustment_studio():
                     st.slider("Lệch Y", -100, 100,
                               value=int(st.session_state[y_key]), step=1, key=y_key)
 
-                # Hàng nút mini per-item: reset / +/-5
                 rb1, rb2, rb3 = st.columns(3)
                 with rb1:
                     if st.button("↺ Reset", key=f"reset_{item_id}", use_container_width=True):
@@ -450,7 +425,7 @@ def render_adjustment_studio():
     cb1, cb2 = st.columns(2)
     with cb1:
         do_render = st.button(
-            "🎨 RENDER ẢNH ĐÃ CHỌN",
+            "🎨 RENDER ẢNH ĐĐ CHỌN",
             type="primary",
             use_container_width=True,
             key="adj_render_selected",
@@ -493,12 +468,21 @@ def render_adjustment_studio():
                 "offset_x": int(st.session_state.get(f"adj_x_{item['id']}", 0)),
                 "offset_y": int(st.session_state.get(f"adj_y_{item['id']}", 0)),
             }
+
+            # LẤY CHÍNH XÁC TÊN FILE Ở THƯ MỤC FINAL ĐỂ GHI ĐÈ KHI GỘP
+            exact_stem = item.get("original_name", "image")
+            if final_dir and final_dir.exists():
+                # Chỉ lấy trong final_dir
+                f_path, _ = find_rendered_image_for_item(item, root, final_dir, None, cfg.get("sizes", []))
+                if f_path and Path(f_path).exists():
+                    exact_stem = Path(f_path).stem
+
             try:
                 resize_to_multi_sizes(
                     Path(item["source_path"]),
                     adjusted_root,
                     item["folder_name"],
-                    item["original_name"],
+                    exact_stem, # Fix: Sủ dụng đúng stem của final image
                     cfg.get("sizes", []),
                     scale_pct=int(cfg.get("default_scale_pct", 100)),
                     quality=int(cfg.get("quality", 95)),
@@ -510,10 +494,7 @@ def render_adjustment_studio():
                 status.warning(f"⚠️ Lỗi render {item.get('original_name', '-')}: {exc}")
             progress.progress(idx / max(len(selected_items), 1))
 
-        try:
-            batch_rename_with_template(adjusted_root, cfg.get("template", "{name}_{nn}"))
-        except Exception:
-            pass
+        # Đã bị xóa hàm batch_rename_with_template ở đây để file không bị đánh số sai lệch
 
         duration = time.time() - start_time
         adjusted_files = [
@@ -524,7 +505,6 @@ def render_adjustment_studio():
         status.success(f"🎉 Render xong {len(adjusted_files)} file đã chỉnh.")
         show_preview(adjusted_root)
 
-        # Xóa cache thumbnail để buộc Studio đọc lại ảnh ADJUSTED mới
         st.session_state.pop("_studio_thumb_b64_cache", None)
         st.session_state["_adjust_render_done"] = True
         st.session_state["_adjusted_root"] = str(adjusted_root)
@@ -575,7 +555,6 @@ def render_adjustment_studio():
 # ZIP DOWNLOADS — luôn hiển thị trong Studio (cả ZIP gốc & ZIP gộp)
 # ═════════════════════════════════════════════════════════════════════
 def _render_zip_download_section(meta: dict, root: Path | None, final_dir: Path | None):
-    """Hiển thị 2 nút TẢI ZIP trong Studio: ZIP gốc (FINAL) + ZIP gộp (đã chỉnh)."""
     st.markdown(
         '<div class="sec-title">📥 Tải ZIP (cả khi chưa chỉnh)</div>',
         unsafe_allow_html=True,
@@ -592,10 +571,8 @@ def _render_zip_download_section(meta: dict, root: Path | None, final_dir: Path 
 
     col_orig, col_merged = st.columns(2)
 
-    # ── ZIP GỐC (FINAL) ──
     with col_orig:
         zip_path_orig = meta.get("zip_path", "") if isinstance(meta, dict) else ""
-        # Nếu zip_path không có, thử tự tạo từ final_dir
         if (not zip_path_orig or not Path(zip_path_orig).exists()) and root and final_dir and final_dir.exists():
             try:
                 fallback_zip = root / f"OriginalExport_{meta.get('batch_id', 'batch')}.zip"
@@ -628,7 +605,6 @@ def _render_zip_download_section(meta: dict, root: Path | None, final_dir: Path 
         else:
             st.info("Chưa có ZIP gốc — vào tab nguồn (Web/Drive/Local) tải lại để tạo.")
 
-    # ── ZIP GỘP (sau khi user bấm TẠO ZIP GỘP) ──
     with col_merged:
         zip_path_merged = st.session_state.get("adjust_zip_path", "")
         handle_merged = open_zip_for_download(zip_path_merged)
