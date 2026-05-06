@@ -976,7 +976,7 @@ def render_config_panel() -> dict:
             quality = st.slider("Chất lượng", 60, 100, 95, 1, key="cfg_quality")
             export_format = st.selectbox("Định dạng", list(EXPORT_FORMATS.keys()), 0, key="cfg_format")
         with c2:
-            default_scale_pct = st.slider("Scale (%)", 60, 150, 100, 1, key="cfg_scale")
+            default_scale_pct = st.slider("Scale (%)", 60, 200, 100, 1, key="cfg_scale")
             max_workers = st.slider("Luồng xử lý", 1, 8, 4, 1, key="cfg_workers")
 
         st.markdown('<div class="cfg-label">✏️ Template tên & nén</div>', unsafe_allow_html=True)
