@@ -8,6 +8,7 @@ v9.3 (giữ NGUYÊN logic giải nén / multi-thread resize):
 
 from __future__ import annotations
 
+import gc
 import time
 import zipfile
 import concurrent.futures
@@ -215,7 +216,15 @@ def run_mode_local(cfg: dict):
             except Exception as exc:
                 return (file_path.name, False, str(exc), None)
 
-        max_workers = min(8, max(1, int(cfg.get("max_workers", 4))))
+        # v9.8: tính số worker an toàn theo RAM thực tế của máy
+        try:
+            import psutil
+            _avail_mb = int(psutil.virtual_memory().available / 1024 / 1024)
+            _budget   = max(_avail_mb - 500, 64)
+            _by_ram   = max(1, int(_budget / 100))
+            max_workers = min(int(cfg.get("max_workers", 4)), _by_ram, 8)
+        except ImportError:
+            max_workers = min(8, max(1, int(cfg.get("max_workers", 4))))
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_map = {executor.submit(resize_one_image, fp): fp for fp in valid_images}
@@ -283,10 +292,7 @@ def run_mode_local(cfg: dict):
 
             if zip_output_path.exists() and zip_output_path.stat().st_size > 100:
                 st.session_state.local_zip_path = str(zip_output_path)
-                try:
-                    st.session_state.local_zip_data = zip_output_path.read_bytes()
-                except Exception:
-                    st.session_state.local_zip_data = None
+                st.session_state.local_zip_data = None  # v9.8: KHÔNG load bytes vào RAM
                 zip_size_kb = zip_output_path.stat().st_size // 1024
                 status_placeholder.success(
                     f"🎉 Hoàn tất — {len(all_output_files)} ảnh sẵn sàng!"
@@ -319,6 +325,7 @@ def run_mode_local(cfg: dict):
             st.session_state.pop("_studio_thumb_b64_cache", None)
             # Báo app.py auto-switch sang Studio
             st.session_state["_goto_studio"] = True
+            gc.collect()  # v9.8: giải phóng RAM sau xong
 
             size_label = " + ".join([get_size_label(w, h, m) for w, h, m in sizes])
             file_names = ", ".join([uf.name for uf in uploaded_files[:3]])
