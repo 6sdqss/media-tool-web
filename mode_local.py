@@ -216,13 +216,11 @@ def run_mode_local(cfg: dict):
             except Exception as exc:
                 return (file_path.name, False, str(exc), None)
 
-        # v9.8: tính số worker an toàn theo RAM thực tế
         try:
             import psutil as _ps
-            _avail    = int(_ps.virtual_memory().available / 1024 / 1024)
-            _budget   = max(_avail - 500, 64)
+            _avail = int(_ps.virtual_memory().available / 1024 / 1024)
             max_workers = max(1, min(int(cfg.get("max_workers", 4)),
-                                     int(_budget / 100), 8))
+                                     int(max(_avail - 500, 64) / 100), 8))
         except ImportError:
             max_workers = min(8, max(1, int(cfg.get("max_workers", 4))))
         try:
@@ -292,7 +290,7 @@ def run_mode_local(cfg: dict):
 
             if zip_output_path.exists() and zip_output_path.stat().st_size > 100:
                 st.session_state.local_zip_path = str(zip_output_path)
-                st.session_state.local_zip_data = None  # v9.8: KHÔNG load bytes vào RAM
+                st.session_state.local_zip_data = None  # v9.8: không load vào RAM
                 zip_size_kb = zip_output_path.stat().st_size // 1024
                 status_placeholder.success(
                     f"🎉 Hoàn tất — {len(all_output_files)} ảnh sẵn sàng!"
