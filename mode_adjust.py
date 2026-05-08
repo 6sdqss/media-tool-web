@@ -52,7 +52,10 @@ _CSS_INJECTED = False
 
 
 def _inject_studio_css():
-    """Inject CSS 1 lần — KHÔNG gọi ở module level tránh crash khi import."""
+    """
+    Inject CSS vào Studio — gọi trong hàm, KHÔNG ở module level.
+    Module-level st.* gây lỗi 'Oh no' khi Streamlit import file.
+    """
     global _CSS_INJECTED
     if _CSS_INJECTED:
         return
@@ -440,7 +443,7 @@ def _render_grid_card(item: dict, final_dir, adjusted_dir, sizes_cfg, cfg,
 # MAIN STUDIO
 # ═════════════════════════════════════════════════════════════════════
 def render_adjustment_studio():
-    _inject_studio_css()
+    _inject_studio_css()  # An toàn: không ở module level
     st.markdown("<div class='studio-wrap'>", unsafe_allow_html=True)
 
     st.markdown(
