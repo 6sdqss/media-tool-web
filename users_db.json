@@ -1,6 +1,6 @@
 {
     "ducpro": {
-        "password": "5551ebcbe247f5e3b8d48df6f92fa6c96890fc13342d20d7c6be01b1b15e0dcb",
+        "password": "pbkdf2$260000$d6cf3aaf8e17d95e29c4117da9058609447a2b59c668b824e9be2b3fa7e8192c$24992ec46f7ebfece7379dfc30a0f47e51ba2fafd422a317ea8fbe0f7d1acac5",
         "role": "admin",
         "status": "approved",
         "permissions": [
