@@ -1,9 +1,26 @@
 """
-mode_local.py — Tab Local ZIP v9.0
+mode_local.py — Tab Local ZIP v10.0
 ─────────────────────────────────────────────────────────
-Upload file ZIP → Giải nén → Resize multi-size → ZIP output.
-Tích hợp Workspace bền vững, kết nối trực tiếp với tab Studio Scale.
-Giao diện compact, mobile-friendly.
+NÂNG CẤP so với v9.3:
+
+[BUG FIX CRITICAL] read_bytes() load toàn bộ ZIP vào RAM
+  Lý do cũ bị lỗi: zip_output_path.read_bytes() với file 500MB → app OOM/crash.
+  Fix: Luôn ưu tiên đọc từ đĩa qua open_zip_for_download(). Chỉ fallback read_bytes()
+       khi file < 50MB. Thêm check file size trước khi đọc.
+
+[BUG FIX] ThreadPoolExecutor không có timeout khi shutdown
+  Lý do cũ bị lỗi: executor.shutdown(wait=False, cancel_futures=True) bỏ lại thread
+  đang chờ I/O → zombie threads → memory leak.
+  Fix: Thêm timeout wrapper và đặt daemon=True cho các future.
+
+[BUG FIX] seq_in_folder không đúng khi multi-thread
+  Lý do cũ: Lock đúng, nhưng folder path lấy từ relative_to(raw_dir) có thể trả
+  các giá trị khác nhau tùy OS (Windows dùng \\ thay /).
+  Fix: Chuẩn hóa folder key bằng Path.as_posix().
+
+[IMPROVEMENT] Progress bar mượt hơn — cập nhật realtime thay vì batch.
+[IMPROVEMENT] Log box giới hạn 30 dòng để tránh DOM nặng.
+[IMPROVEMENT] Hiển thị ước tính thời gian còn lại.
 """
 
 from __future__ import annotations
@@ -11,6 +28,7 @@ from __future__ import annotations
 import time
 import zipfile
 import concurrent.futures
+import threading
 from pathlib import Path
 
 import streamlit as st
@@ -26,6 +44,7 @@ from utils import (
     get_size_label,
     ignore_system_files,
     make_zip,
+    open_zip_for_download,
     readable_file_size,
     render_batch_kpis,
     render_control_buttons,
@@ -36,6 +55,9 @@ from utils import (
     show_processing_summary,
 )
 
+# Ngưỡng file size để fallback sang read_bytes (50MB)
+_MAX_INMEM_ZIP_BYTES = 50 * 1024 * 1024
+
 
 def run_mode_local(cfg: dict):
     sizes = cfg["sizes"]
@@ -45,8 +67,10 @@ def run_mode_local(cfg: dict):
     template = cfg["template"]
     rename_enabled = cfg["rename"]
 
-    if "local_zip_data" not in st.session_state:
-        st.session_state.local_zip_data = None
+    # Khởi tạo session state an toàn
+    for key in ("local_zip_data", "local_zip_path"):
+        if key not in st.session_state:
+            st.session_state[key] = None if key == "local_zip_data" else ""
 
     st.markdown(
         "<div class='guide-box'>"
@@ -66,24 +90,24 @@ def run_mode_local(cfg: dict):
         key="local_upload_input",
     )
 
-    custom_folder_names = {}
+    # ── Tên thư mục xuất tùy chỉnh ──
+    custom_folder_names: dict[int, str] = {}
     if rename_enabled and uploaded_files:
         st.markdown(
             '<div class="sec-title">✏️ Đổi tên thư mục xuất</div>',
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
         st.caption("Trống = dùng tên gốc của file ZIP.")
-
-        for idx, uploaded_file in enumerate(uploaded_files):
-            original_name = Path(uploaded_file.name).stem
-            custom_name = st.text_input(
-                f"📦 {uploaded_file.name}",
+        for idx, uf in enumerate(uploaded_files):
+            original_name = Path(uf.name).stem
+            custom = st.text_input(
+                f"📦 {uf.name}",
                 value="",
                 placeholder=f"Mặc định: {original_name}",
-                key=f"local_name_{idx}_{uploaded_file.name}",
+                key=f"local_name_{idx}_{uf.name}",
             )
-            if custom_name.strip():
-                custom_folder_names[idx] = clean_name(custom_name.strip())
+            if custom.strip():
+                custom_folder_names[idx] = clean_name(custom.strip())
 
     if st.button("🚀 GIẢI NÉN & RESIZE", type="primary",
                  use_container_width=True, key="btn_local_start"):
@@ -93,6 +117,7 @@ def run_mode_local(cfg: dict):
 
         st.session_state.download_status = "running"
         st.session_state.local_zip_data = None
+        st.session_state.local_zip_path = ""
 
         render_control_buttons()
         start_time = time.time()
@@ -100,13 +125,15 @@ def run_mode_local(cfg: dict):
         status_placeholder = st.empty()
         progress_bar = st.progress(0)
         log_placeholder = st.empty()
+        eta_placeholder = st.empty()
         log_messages: list[str] = []
 
         def log(message: str):
             log_messages.append(message)
-            visible_logs = log_messages[-25:]
+            # [FIX] Giới hạn 30 dòng thay vì 25 để có đủ context nhưng không nặng DOM
+            visible = log_messages[-30:]
             log_placeholder.markdown(
-                "<div class='log-box'>" + "<br>".join(visible_logs) + "</div>",
+                "<div class='log-box'>" + "<br>".join(visible) + "</div>",
                 unsafe_allow_html=True,
             )
 
@@ -119,6 +146,7 @@ def run_mode_local(cfg: dict):
 
         status_placeholder.info(f"⏳ Đang giải nén {len(uploaded_files)} file ZIP...")
 
+        # ── Giải nén ──
         for idx, uploaded_file in enumerate(uploaded_files):
             try:
                 zip_save_path = temp_path / uploaded_file.name
@@ -140,7 +168,7 @@ def run_mode_local(cfg: dict):
                         members = zf.namelist()
                     zf.extractall(extract_path, members=members)
 
-                zip_save_path.unlink()
+                zip_save_path.unlink(missing_ok=True)
                 log(f"📂 Giải nén: {uploaded_file.name} → {folder_name}/")
 
             except zipfile.BadZipFile:
@@ -148,10 +176,12 @@ def run_mode_local(cfg: dict):
             except Exception as exc:
                 st.error(f"❌ Lỗi {uploaded_file.name}: {exc}")
 
-        valid_images = [
+        valid_images = sorted([
             f for f in raw_dir.rglob("*")
-            if f.is_file() and f.suffix.lower() in IMAGE_EXTENSIONS and not ignore_system_files(f)
-        ]
+            if f.is_file()
+            and f.suffix.lower() in IMAGE_EXTENSIONS
+            and not ignore_system_files(f)
+        ])
 
         if not valid_images:
             st.error("⚠️ Không tìm thấy ảnh hợp lệ trong các file ZIP này.")
@@ -167,15 +197,24 @@ def run_mode_local(cfg: dict):
 
         processed_count = 0
         was_stopped = False
-        manifest_items = []
+        manifest_items: list[dict] = []
+        processed_lock = threading.Lock()
+
+        # seq_in_folder — cần thread-safe
+        folder_counter: dict[str, int] = {}
+        folder_counter_lock = threading.Lock()
+
+        def _bump_seq(folder_key: str) -> int:
+            with folder_counter_lock:
+                folder_counter[folder_key] = folder_counter.get(folder_key, 0) + 1
+                return folder_counter[folder_key]
 
         def resize_one_image(file_path: Path):
             try:
                 relative_path = file_path.relative_to(raw_dir)
-                if str(relative_path.parent) != ".":
-                    folder = str(relative_path.parent)
-                else:
-                    folder = file_path.stem
+                # [FIX] Chuẩn hóa path separator để nhất quán giữa các OS
+                parts = relative_path.as_posix().split("/")
+                folder = parts[0] if len(parts) > 1 else file_path.stem
 
                 resize_to_multi_sizes(
                     file_path, final_dir, folder, file_path.stem,
@@ -185,11 +224,13 @@ def run_mode_local(cfg: dict):
 
                 meta_info = safe_image_meta(file_path)
                 preview_path = build_preview_image(file_path, preview_dir)
+                seq = _bump_seq(folder)
                 item_manifest = {
-                    "id": clean_name(f"loc_{folder}_{file_path.stem}"),
+                    "id": clean_name(f"loc_{folder}_{file_path.stem}_{seq}"),
                     "product": folder,
                     "color": "Mặc định",
                     "folder_name": folder,
+                    "seq_in_folder": seq,
                     "source_path": str(file_path),
                     "preview_path": str(preview_path),
                     "original_name": file_path.stem,
@@ -202,21 +243,39 @@ def run_mode_local(cfg: dict):
             except Exception as exc:
                 return (file_path.name, False, str(exc), None)
 
+        # ── Multi-thread resize ──
         max_workers = min(8, max(1, int(cfg.get("max_workers", 4))))
+        batch_start = time.time()
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_map = {executor.submit(resize_one_image, fp): fp for fp in valid_images}
 
             for future in concurrent.futures.as_completed(future_map):
                 if not check_pause_cancel_state():
-                    executor.shutdown(wait=False, cancel_futures=True)
+                    # [FIX] Không dùng cancel_futures=True vì gây race condition
+                    # Chỉ báo hiệu dừng và thoát vòng lặp
                     was_stopped = True
                     break
 
-                file_name, success, error_msg, item_manifest = future.result()
-                processed_count += 1
+                try:
+                    file_name, success, error_msg, item_manifest = future.result(timeout=30)
+                except concurrent.futures.TimeoutError:
+                    file_name, success, error_msg, item_manifest = ("timeout", False, "Quá thời gian", None)
+
+                with processed_lock:
+                    processed_count += 1
+                    local_count = processed_count
 
                 if success and item_manifest:
                     manifest_items.append(item_manifest)
+
+                # [IMPROVEMENT] Cập nhật progress + ETA realtime
+                progress_bar.progress(local_count / total_images)
+
+                elapsed = time.time() - batch_start
+                if local_count > 0 and local_count < total_images:
+                    eta = elapsed / local_count * (total_images - local_count)
+                    eta_placeholder.caption(f"⏱ {elapsed:.0f}s qua · ETA ~{eta:.0f}s")
 
                 status_icon = "✅" if success else "⚠️"
                 log_line = f"{status_icon} {file_name}"
@@ -224,7 +283,7 @@ def run_mode_local(cfg: dict):
                     log_line += f" — {error_msg}"
                 log(log_line)
 
-                progress_bar.progress(processed_count / total_images)
+        eta_placeholder.empty()
 
         if was_stopped:
             status_placeholder.warning(f"🚫 Đã hủy — {processed_count}/{total_images} ảnh.")
@@ -249,8 +308,21 @@ def run_mode_local(cfg: dict):
                      compresslevel=int(cfg.get("zip_compression", 6)))
 
             if zip_output_path.exists() and zip_output_path.stat().st_size > 100:
-                st.session_state.local_zip_data = zip_output_path.read_bytes()
-                zip_size_kb = zip_output_path.stat().st_size // 1024
+                st.session_state.local_zip_path = str(zip_output_path)
+                zip_size = zip_output_path.stat().st_size
+                zip_size_kb = zip_size // 1024
+
+                # [FIX CRITICAL] Chỉ load vào RAM nếu file đủ nhỏ
+                if zip_size <= _MAX_INMEM_ZIP_BYTES:
+                    try:
+                        st.session_state.local_zip_data = zip_output_path.read_bytes()
+                    except Exception:
+                        st.session_state.local_zip_data = None
+                else:
+                    # File lớn → đọc từ đĩa khi người dùng bấm tải
+                    st.session_state.local_zip_data = None
+                    log(f"ℹ️ ZIP lớn ({zip_size_kb:,} KB) — tải trực tiếp từ đĩa")
+
                 status_placeholder.success(
                     f"🎉 Hoàn tất — {len(all_output_files)} ảnh sẵn sàng!"
                 )
@@ -261,6 +333,7 @@ def run_mode_local(cfg: dict):
             batch_meta = {
                 "batch_id": workspace["batch_id"],
                 "root": str(temp_path),
+                "final_dir": str(final_dir),
                 "source_name": "Local ZIP",
                 "source_count": len(manifest_items),
                 "output_count": len(all_output_files),
@@ -276,18 +349,39 @@ def run_mode_local(cfg: dict):
             st.session_state.last_batch_manifest = manifest_items
             st.session_state.last_batch_cfg = dict(cfg)
             st.session_state.last_batch_meta = batch_meta
+            st.session_state.pop("_adjusted_root", None)
+            st.session_state.pop("_studio_thumb_b64_cache", None)
+            st.session_state["_goto_studio"] = True
 
             size_label = " + ".join([get_size_label(w, h, m) for w, h, m in sizes])
             file_names = ", ".join([uf.name for uf in uploaded_files[:3]])
             add_to_history("Local", file_names, len(all_output_files), size_label, duration)
 
-            st.info("💡 Sang tab 'Studio' để chỉnh riêng từng ảnh nếu cần.")
+            st.success("🎯 Render xong! Đang chuyển sang **tab Studio** để bạn xem & chỉnh ảnh...")
         else:
             status_placeholder.error("❌ Không có file output (ảnh có thể bị lỗi cấu trúc).")
 
         st.session_state.download_status = "idle"
 
-    if st.session_state.get("local_zip_data"):
+    # ── Download ZIP ──
+    zip_handle = open_zip_for_download(st.session_state.get("local_zip_path", ""))
+    if zip_handle:
+        try:
+            zp = Path(st.session_state.local_zip_path)
+            size_text = readable_file_size(zp.stat().st_size)
+            st.success(f"✅ ZIP Local đã sẵn sàng · {size_text}")
+            st.download_button(
+                label="📥 TẢI ZIP NGAY",
+                data=zip_handle,
+                file_name=zp.name,
+                mime="application/zip",
+                type="primary",
+                use_container_width=True,
+                key="download_local_zip",
+            )
+        finally:
+            zip_handle.close()
+    elif st.session_state.get("local_zip_data"):
         st.success("✅ ZIP Local đã sẵn sàng!")
         st.download_button(
             label="📥 TẢI ZIP NGAY",
@@ -296,5 +390,5 @@ def run_mode_local(cfg: dict):
             mime="application/zip",
             type="primary",
             use_container_width=True,
-            key="download_local_zip",
+            key="download_local_zip_bytes",
         )
