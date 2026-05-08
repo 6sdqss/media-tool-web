@@ -216,13 +216,11 @@ def run_mode_local(cfg: dict):
             except Exception as exc:
                 return (file_path.name, False, str(exc), None)
 
-        # v9.8: tính số worker an toàn theo RAM thực tế của máy
         try:
-            import psutil
-            _avail_mb = int(psutil.virtual_memory().available / 1024 / 1024)
-            _budget   = max(_avail_mb - 500, 64)
-            _by_ram   = max(1, int(_budget / 100))
-            max_workers = min(int(cfg.get("max_workers", 4)), _by_ram, 8)
+            import psutil as _ps
+            _avail = int(_ps.virtual_memory().available / 1024 / 1024)
+            _budget = max(_avail - 500, 64)
+            max_workers = max(1, min(int(cfg.get("max_workers", 4)), int(_budget / 100), 8))
         except ImportError:
             max_workers = min(8, max(1, int(cfg.get("max_workers", 4))))
         try:
@@ -325,7 +323,7 @@ def run_mode_local(cfg: dict):
             st.session_state.pop("_studio_thumb_b64_cache", None)
             # Báo app.py auto-switch sang Studio
             st.session_state["_goto_studio"] = True
-            gc.collect()  # v9.8: giải phóng RAM sau xong
+            gc.collect()
 
             size_label = " + ".join([get_size_label(w, h, m) for w, h, m in sizes])
             file_names = ", ".join([uf.name for uf in uploaded_files[:3]])
