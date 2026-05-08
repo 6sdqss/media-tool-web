@@ -185,14 +185,19 @@ def api_get_file_name(service, file_id: str) -> str:
 
 def api_download_file(service, file_id: str, save_path: Path,
                       max_retries: int = 3) -> bool:
-    """v9.8: Streaming 4MB chunk → disk. Không dùng BytesIO buffer. Retry 3 lần."""
+    """
+    v9.8 FIX: Stream từng chunk 4MB thẳng ra disk — KHÔNG dùng BytesIO.
+    BytesIO load toàn bộ file vào RAM → crash khi thư mục nhiều ảnh lớn.
+    Retry 3 lần với exponential backoff để chống lỗi mạng nhất thời.
+    """
     save_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = save_path.with_suffix(".tmp")
     for attempt in range(1, max_retries + 1):
         try:
             request = service.files().get_media(fileId=file_id)
             with open(tmp, "wb") as fh:
-                downloader = MediaIoBaseDownload(fh, request, chunksize=4 * 1024 * 1024)
+                downloader = MediaIoBaseDownload(fh, request,
+                                                 chunksize=4 * 1024 * 1024)
                 done = False
                 while not done:
                     _, done = downloader.next_chunk()
@@ -203,9 +208,9 @@ def api_download_file(service, file_id: str, save_path: Path,
         except Exception as exc:
             tmp.unlink(missing_ok=True)
             if attempt < max_retries:
-                time.sleep(2 ** attempt)
+                time.sleep(2 ** attempt)   # 2s → 4s → 8s
             else:
-                print(f"[Drive API] Thất bại sau {max_retries} lần: {exc}")
+                print(f"[Drive API] Thất bại {max_retries} lần — {file_id}: {exc}")
     return False
 
 
@@ -261,6 +266,13 @@ def api_list_folder_images(service, folder_id: str) -> list:
 
 def api_download_folder_images(service, folder_id: str, save_dir: Path,
                                max_files: int = None) -> int:
+    """
+    v9.8 FIX:
+    - Rate-limit 0.15s/file → tránh Google quota 429
+    - RAM guard: GC + chờ nếu RAM < 200MB
+    - Bỏ qua file lỗi, tiếp tục file kế tiếp
+    """
+    import gc as _gc
     images = api_list_folder_images(service, folder_id)
     if not images:
         return 0
@@ -268,14 +280,28 @@ def api_download_folder_images(service, folder_id: str, save_dir: Path,
         images = images[:max_files]
 
     count = 0
-    for img_meta in images:
+    for idx, img_meta in enumerate(images):
         file_name = re.sub(r'[\\/*?:"<>|]', "", img_meta["name"]).strip()
         if not file_name:
             file_name = f"{img_meta['id']}.jpg"
         save_path = save_dir / file_name
-        if api_download_file(service, img_meta["id"], save_path):
-            count += 1
-
+        try:
+            if api_download_file(service, img_meta["id"], save_path):
+                count += 1
+        except Exception as exc:
+            print(f"[Drive] Bỏ qua {file_name}: {exc}")
+            continue
+        # Rate-limit: 0.15s giữa các file tránh Google quota 429
+        time.sleep(0.15)
+        # RAM guard + GC định kỳ
+        if (idx + 1) % 20 == 0:
+            _gc.collect()
+            try:
+                import psutil
+                if int(psutil.virtual_memory().available / 1024 / 1024) < 200:
+                    time.sleep(3)  # Chờ OS giải phóng
+            except ImportError:
+                pass
     return count
 
 
@@ -468,8 +494,12 @@ def render_control_buttons():
     st.markdown("</div>", unsafe_allow_html=True)
 
 
+# ══════════════════════════════════════════════════════════════════════
+# RAM & PERFORMANCE HELPERS v9.8
+# ══════════════════════════════════════════════════════════════════════
+
 def get_available_ram_mb() -> int:
-    """RAM khả dụng (MB). Fallback 512 nếu thiếu psutil."""
+    """RAM khả dụng (MB). Fallback 512 nếu không có psutil."""
     try:
         import psutil
         return int(psutil.virtual_memory().available / 1024 / 1024)
@@ -479,21 +509,24 @@ def get_available_ram_mb() -> int:
 
 def smart_max_workers(user_requested: int = 4, images_count: int = 1,
                       mb_per_image: int = 100) -> int:
-    """Tính số worker an toàn theo RAM thực tế."""
-    avail   = get_available_ram_mb()
-    budget  = max(avail - 500, 64)
-    by_ram  = max(1, int(budget / mb_per_image))
+    """
+    Tính số worker an toàn theo RAM thực tế của máy.
+    Luôn giữ 500 MB buffer cho OS + Streamlit.
+    """
+    avail  = get_available_ram_mb()
+    budget = max(avail - 500, 64)
+    by_ram = max(1, int(budget / mb_per_image))
     return max(1, min(user_requested, by_ram, max(images_count, 1), 8))
 
 
 def gc_collect_safe():
-    """GC + xóa b64 cache nếu RAM < 300 MB."""
+    """GC + xóa b64 cache nếu RAM xuống < 300 MB."""
     import gc
     gc.collect()
     try:
-        avail = get_available_ram_mb()
-        if avail < 300 and "_studio_thumb_b64_cache" in st.session_state:
-            st.session_state["_studio_thumb_b64_cache"] = {}
+        if get_available_ram_mb() < 300:
+            if "_studio_thumb_b64_cache" in st.session_state:
+                st.session_state["_studio_thumb_b64_cache"] = {}
             gc.collect()
     except Exception:
         pass
