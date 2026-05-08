@@ -45,12 +45,11 @@ from utils import (
 
 
 def _smart_workers_drive(n_images: int, user_cap: int = 4) -> int:
-    """Tính số luồng an toàn theo RAM thực tế — tránh crash khi nhiều ảnh lớn."""
     try:
         import psutil
-        avail_mb  = int(psutil.virtual_memory().available / 1024 / 1024)
-        budget_mb = max(avail_mb - 500, 64)
-        by_ram    = max(1, int(budget_mb / 100))
+        avail  = int(psutil.virtual_memory().available / 1024 / 1024)
+        budget = max(avail - 500, 64)
+        by_ram = max(1, int(budget / 100))
         return min(user_cap, by_ram, max(n_images, 1), 8)
     except ImportError:
         return min(user_cap, 3)
@@ -159,7 +158,7 @@ def run_mode_drive(cfg: dict, drive_service):
                 return folder_counter[folder_key]
 
         def _resize_one_drive(img_path: Path, folder_name: str) -> dict | None:
-            """Resize 1 ảnh trong thread — KHÔNG gọi st.* (không thread-safe)."""
+            """Resize 1 ảnh trong thread — KHÔNG gọi st.*"""
             try:
                 resize_to_multi_sizes(
                     img_path, final_dir, folder_name, img_path.stem,
@@ -179,9 +178,9 @@ def run_mode_drive(cfg: dict, drive_service):
                     "preview_path":     str(preview_path),
                     "original_name":    img_path.stem,
                     "default_scale_pct": int(cfg.get("default_scale_pct", 100)),
-                    "source_width":     meta_info.get("width",       0),
-                    "source_height":    meta_info.get("height",      0),
-                    "source_size_bytes": meta_info.get("size_bytes",  0),
+                    "source_width":     meta_info.get("width",      0),
+                    "source_height":    meta_info.get("height",     0),
+                    "source_size_bytes": meta_info.get("size_bytes", 0),
                 }
             except Exception as exc:
                 return {"_error": str(exc), "_name": img_path.name}
@@ -251,50 +250,30 @@ def run_mode_drive(cfg: dict, drive_service):
                         if f.suffix.lower() in IMAGE_EXTENSIONS
                         and not f.name.startswith("._")
                     ])
-                    if not raw_images:
-                        with log_container:
-                            st.warning(f"⚠️ '{folder_name}': không có ảnh hợp lệ.")
-                        continue
-
-                    n_workers = _smart_workers_drive(
-                        len(raw_images), int(cfg.get("max_workers", 4))
-                    )
+                    n_w = _smart_workers_drive(len(raw_images), int(cfg.get("max_workers", 4)))
                     status_placeholder.info(
                         f"🖼 [{link_index+1}/{total_links}] "
-                        f"Resize {len(raw_images)} ảnh · {n_workers} luồng: {folder_name}"
+                        f"Resize {len(raw_images)} ảnh · {n_w} luồng: {folder_name}"
                     )
                     try:
-                        with concurrent.futures.ThreadPoolExecutor(
-                                max_workers=n_workers) as executor:
-                            futures = {
-                                executor.submit(_resize_one_drive, p, folder_name): p
-                                for p in raw_images
-                            }
-                            for fut in concurrent.futures.as_completed(futures):
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=n_w) as ex:
+                            futs = {ex.submit(_resize_one_drive, p, folder_name): p
+                                    for p in raw_images}
+                            for fut in concurrent.futures.as_completed(futs):
                                 if not check_pause_cancel_state():
-                                    executor.shutdown(wait=False, cancel_futures=True)
-                                    break
+                                    ex.shutdown(wait=False, cancel_futures=True); break
                                 try:
                                     item = fut.result(timeout=120)
-                                except concurrent.futures.TimeoutError:
-                                    with log_container:
-                                        st.warning("⚠️ Timeout — bỏ qua 1 ảnh")
-                                    continue
                                 except Exception as exc:
-                                    with log_container:
-                                        st.warning(f"⚠️ Thread: {exc}")
+                                    with log_container: st.warning(f"⚠️ Thread: {exc}")
                                     continue
                                 if item and "_error" not in item:
                                     manifest_items.append(item)
                                 elif item:
                                     with log_container:
-                                        st.warning(
-                                            f"⚠️ {item.get('_name','?')}: "
-                                            f"{item['_error']}"
-                                        )
+                                        st.warning(f"⚠️ {item.get('_name','?')}: {item['_error']}")
                     except MemoryError:
-                        with log_container:
-                            st.error("❌ Hết RAM — giảm số ảnh hoặc dùng máy RAM cao hơn.")
+                        with log_container: st.error("❌ Hết RAM khi resize folder này.")
                     gc.collect()
 
                 else:
@@ -356,7 +335,7 @@ def run_mode_drive(cfg: dict, drive_service):
                     st.warning(f"⚠️ Sự cố '{folder_name}': {exc}")
                 continue
 
-            gc.collect()  # Giải phóng RAM sau mỗi folder
+            gc.collect()
             progress_bar.progress((link_index + 1) / total_links)
 
         duration = time.time() - start_time
@@ -384,7 +363,7 @@ def run_mode_drive(cfg: dict, drive_service):
 
             if zip_path.exists() and zip_path.stat().st_size > 100:
                 st.session_state.drive_zip_path = str(zip_path)
-                st.session_state.drive_zip_data = None  # v9.8: KHÔNG load bytes vào RAM
+                st.session_state.drive_zip_data = None  # v9.8: không load bytes vào RAM
 
             batch_meta = {
                 "batch_id": workspace["batch_id"],
