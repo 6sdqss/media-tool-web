@@ -9,9 +9,9 @@ v9.3 (giữ NGUYÊN logic Drive API/gdown/upload):
 from __future__ import annotations
 
 import gc
-import time
 import threading
 import concurrent.futures
+import time
 from pathlib import Path
 
 import streamlit as st
@@ -45,7 +45,7 @@ from utils import (
 
 
 def _smart_workers_drive(n_images: int, user_cap: int = 4) -> int:
-    """Tính số worker an toàn theo RAM thực tế — tránh crash khi xử lý nhiều ảnh."""
+    """Tính số luồng an toàn theo RAM thực tế — tránh crash khi nhiều ảnh lớn."""
     try:
         import psutil
         avail_mb  = int(psutil.virtual_memory().available / 1024 / 1024)
@@ -170,18 +170,18 @@ def run_mode_drive(cfg: dict, drive_service):
                 preview_path = build_preview_image(img_path, preview_dir)
                 seq          = _bump_seq(folder_name)
                 return {
-                    "id":              clean_name(f"drv_{folder_name}_{img_path.stem}_{seq}"),
-                    "product":         folder_name,
-                    "color":           "Mặc định",
-                    "folder_name":     folder_name,
-                    "seq_in_folder":   seq,
-                    "source_path":     str(img_path),
-                    "preview_path":    str(preview_path),
-                    "original_name":   img_path.stem,
+                    "id":               clean_name(f"drv_{folder_name}_{img_path.stem}_{seq}"),
+                    "product":          folder_name,
+                    "color":            "Mặc định",
+                    "folder_name":      folder_name,
+                    "seq_in_folder":    seq,
+                    "source_path":      str(img_path),
+                    "preview_path":     str(preview_path),
+                    "original_name":    img_path.stem,
                     "default_scale_pct": int(cfg.get("default_scale_pct", 100)),
-                    "source_width":    meta_info.get("width",      0),
-                    "source_height":   meta_info.get("height",     0),
-                    "source_size_bytes": meta_info.get("size_bytes", 0),
+                    "source_width":     meta_info.get("width",       0),
+                    "source_height":    meta_info.get("height",      0),
+                    "source_size_bytes": meta_info.get("size_bytes",  0),
                 }
             except Exception as exc:
                 return {"_error": str(exc), "_name": img_path.name}
@@ -248,40 +248,53 @@ def run_mode_drive(cfg: dict, drive_service):
 
                     raw_images = sorted([
                         f for f in current_raw.rglob("*.*")
-                        if f.suffix.lower() in IMAGE_EXTENSIONS and not f.name.startswith("._")
+                        if f.suffix.lower() in IMAGE_EXTENSIONS
+                        and not f.name.startswith("._")
                     ])
+                    if not raw_images:
+                        with log_container:
+                            st.warning(f"⚠️ '{folder_name}': không có ảnh hợp lệ.")
+                        continue
+
                     n_workers = _smart_workers_drive(
                         len(raw_images), int(cfg.get("max_workers", 4))
                     )
-                    with log_container:
-                        st.info(f"⚡ Resize {len(raw_images)} ảnh · {n_workers} luồng")
-
+                    status_placeholder.info(
+                        f"🖼 [{link_index+1}/{total_links}] "
+                        f"Resize {len(raw_images)} ảnh · {n_workers} luồng: {folder_name}"
+                    )
                     try:
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as ex:
+                        with concurrent.futures.ThreadPoolExecutor(
+                                max_workers=n_workers) as executor:
                             futures = {
-                                ex.submit(_resize_one_drive, p, folder_name): p
+                                executor.submit(_resize_one_drive, p, folder_name): p
                                 for p in raw_images
                             }
-                            done_n = 0
                             for fut in concurrent.futures.as_completed(futures):
                                 if not check_pause_cancel_state():
-                                    ex.shutdown(wait=False, cancel_futures=True)
+                                    executor.shutdown(wait=False, cancel_futures=True)
                                     break
-                                done_n += 1
                                 try:
                                     item = fut.result(timeout=120)
+                                except concurrent.futures.TimeoutError:
+                                    with log_container:
+                                        st.warning("⚠️ Timeout — bỏ qua 1 ảnh")
+                                    continue
                                 except Exception as exc:
                                     with log_container:
-                                        st.warning(f"⚠️ Thread lỗi: {exc}")
+                                        st.warning(f"⚠️ Thread: {exc}")
                                     continue
                                 if item and "_error" not in item:
                                     manifest_items.append(item)
                                 elif item:
                                     with log_container:
-                                        st.warning(f"⚠️ {item.get('_name','?')}: {item['_error']}")
+                                        st.warning(
+                                            f"⚠️ {item.get('_name','?')}: "
+                                            f"{item['_error']}"
+                                        )
                     except MemoryError:
                         with log_container:
-                            st.error("❌ Hết RAM khi resize — giảm số ảnh hoặc dùng máy RAM cao hơn.")
+                            st.error("❌ Hết RAM — giảm số ảnh hoặc dùng máy RAM cao hơn.")
                     gc.collect()
 
                 else:
@@ -343,6 +356,7 @@ def run_mode_drive(cfg: dict, drive_service):
                     st.warning(f"⚠️ Sự cố '{folder_name}': {exc}")
                 continue
 
+            gc.collect()  # Giải phóng RAM sau mỗi folder
             progress_bar.progress((link_index + 1) / total_links)
 
         duration = time.time() - start_time
