@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import io
 import os
-import threading
 import re
 import json
 import time
@@ -40,11 +39,6 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 # ╚══════════════════════════════════════════════════════════════╝
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 Image.MAX_IMAGE_PIXELS = None
-
-# ── Thread-safety: PIL không an toàn khi dùng >2 luồng đồng thời
-# Semaphore giới hạn tối đa 2 thread chạy PIL cùng lúc → tránh crash
-_PIL_SEM = threading.Semaphore(2)
-
 try:
     warnings.simplefilter("ignore", Image.DecompressionBombWarning)
 except Exception:
@@ -191,14 +185,15 @@ def api_get_file_name(service, file_id: str) -> str:
 
 def api_download_file(service, file_id: str, save_path: Path,
                       max_retries: int = 3) -> bool:
-    """v9.8: Stream 4MB chunk → disk. Không BytesIO. Retry 3 lần."""
+    """Stream 4MB/chunk thẳng ra disk — không dùng BytesIO buffer."""
     save_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = save_path.with_suffix(".tmp")
     for attempt in range(1, max_retries + 1):
         try:
             request = service.files().get_media(fileId=file_id)
             with open(tmp, "wb") as fh:
-                downloader = MediaIoBaseDownload(fh, request, chunksize=4 * 1024 * 1024)
+                downloader = MediaIoBaseDownload(fh, request,
+                                                 chunksize=4 * 1024 * 1024)
                 done = False
                 while not done:
                     _, done = downloader.next_chunk()
@@ -211,7 +206,7 @@ def api_download_file(service, file_id: str, save_path: Path,
             if attempt < max_retries:
                 time.sleep(2 ** attempt)
             else:
-                print(f"[Drive API] Thất bại {max_retries} lần — {exc}")
+                print(f"[Drive API] Thất bại {max_retries} lần: {exc}")
     return False
 
 
@@ -267,15 +262,15 @@ def api_list_folder_images(service, folder_id: str) -> list:
 
 def api_download_folder_images(service, folder_id: str, save_dir: Path,
                                max_files: int = None) -> int:
-    """v9.8: Rate-limit 0.15s + GC mỗi 20 file + bỏ qua file lỗi."""
-    import gc as _gc
+    """Rate-limit 0.15s/file tránh Google quota 429."""
     images = api_list_folder_images(service, folder_id)
     if not images:
         return 0
     if max_files:
         images = images[:max_files]
+
     count = 0
-    for idx, img_meta in enumerate(images):
+    for img_meta in images:
         file_name = re.sub(r'[\\/*?:"<>|]', "", img_meta["name"]).strip()
         if not file_name:
             file_name = f"{img_meta['id']}.jpg"
@@ -284,11 +279,9 @@ def api_download_folder_images(service, folder_id: str, save_dir: Path,
             if api_download_file(service, img_meta["id"], save_path):
                 count += 1
         except Exception as exc:
-            print(f"[Drive] Skip {file_name}: {exc}")
+            print(f"[Drive] Bỏ qua {file_name}: {exc}")
             continue
-        time.sleep(0.15)
-        if (idx + 1) % 20 == 0:
-            _gc.collect()
+        time.sleep(0.15)  # Rate-limit: tránh Google quota 429
     return count
 
 
@@ -481,35 +474,6 @@ def render_control_buttons():
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def get_available_ram_mb() -> int:
-    try:
-        import psutil
-        return int(psutil.virtual_memory().available / 1024 / 1024)
-    except Exception:
-        return 512
-
-
-def smart_max_workers(user_requested: int = 4, images_count: int = 1,
-                      mb_per_image: int = 100) -> int:
-    avail  = get_available_ram_mb()
-    budget = max(avail - 500, 64)
-    by_ram = max(1, int(budget / mb_per_image))
-    return max(1, min(user_requested, by_ram, max(images_count, 1), 8))
-
-
-def gc_collect_safe():
-    import gc
-    gc.collect()
-    try:
-        if get_available_ram_mb() < 300:
-            if "_studio_thumb_b64_cache" in st.session_state:
-                st.session_state["_studio_thumb_b64_cache"] = {}
-            gc.collect()
-    except Exception:
-        pass
-
-
-
 # ╔══════════════════════════════════════════════════════════════╗
 # ║  RESIZE ENGINE                                               ║
 # ╚══════════════════════════════════════════════════════════════╝
@@ -563,61 +527,33 @@ def _calc_centered_paste_position(free_space: int, offset_pct: int) -> int:
 
 def _prepare_pillow_image(image_path: Path, target_hint: tuple[int, int] | None = None,
                           huge_image_mode: bool = True) -> Image.Image:
-    """
-    v9.8 FIX: Đóng TẤT CẢ intermediate images để tránh file handle leak.
-    Dùng _PIL_SEM để giới hạn PIL đồng thời — PIL không thread-safe.
-    """
-    raw_img = None
-    exif_img = None
-    rgb_img  = None
+    img = Image.open(image_path)
+    img = ImageOps.exif_transpose(img)
 
-    try:
-        # Mở và load ảnh vào bộ nhớ ngay lập tức (đóng file handle sớm nhất)
-        raw_img = Image.open(image_path)
+    if huge_image_mode and target_hint and target_hint[0] and target_hint[1]:
+        try:
+            draft_w = max(int(target_hint[0] * 2.8), 1)
+            draft_h = max(int(target_hint[1] * 2.8), 1)
+            img.draft("RGB", (draft_w, draft_h))
+        except Exception:
+            pass
 
-        if huge_image_mode and target_hint and target_hint[0] and target_hint[1]:
+    img = _convert_to_rgb(img)
+
+    if huge_image_mode and target_hint and target_hint[0] and target_hint[1]:
+        source_long = max(img.width, img.height)
+        desired_long = max(target_hint[0], target_hint[1])
+        if source_long > desired_long * 4:
+            pre_limit = int(desired_long * 2.4)
             try:
-                draft_w = max(int(target_hint[0] * 2.8), 1)
-                draft_h = max(int(target_hint[1] * 2.8), 1)
-                raw_img.draft("RGB", (draft_w, draft_h))
+                reduced = img.copy()
+                reduced.thumbnail((pre_limit, pre_limit), _get_resample_filter())
+                img.close()
+                img = reduced
             except Exception:
                 pass
 
-        # Load toàn bộ vào RAM để đóng file handle
-        raw_img.load()
-
-        exif_img = ImageOps.exif_transpose(raw_img)
-        if exif_img is not raw_img:
-            raw_img.close()
-            raw_img = None
-
-        rgb_img = _convert_to_rgb(exif_img)
-        if rgb_img is not exif_img:
-            exif_img.close()
-            exif_img = None
-
-        if huge_image_mode and target_hint and target_hint[0] and target_hint[1]:
-            source_long  = max(rgb_img.width, rgb_img.height)
-            desired_long = max(target_hint[0], target_hint[1])
-            if source_long > desired_long * 4:
-                pre_limit = int(desired_long * 2.4)
-                try:
-                    reduced = rgb_img.copy()
-                    reduced.thumbnail((pre_limit, pre_limit), _get_resample_filter())
-                    rgb_img.close()
-                    rgb_img = reduced
-                except Exception:
-                    pass  # Giữ nguyên rgb_img nếu lỗi
-
-        return rgb_img
-
-    except Exception:
-        # Cleanup nếu có lỗi giữa chừng
-        for _im in (raw_img, exif_img, rgb_img):
-            if _im is not None:
-                try: _im.close()
-                except Exception: pass
-        raise
+    return img
 
 
 def _save_output_image(final_image: Image.Image, output_path: Path,
@@ -647,36 +583,26 @@ def _save_output_image(final_image: Image.Image, output_path: Path,
 def crop_photoshop_square(image_path: Path, output_path: Path,
                           target: int = 1000, quality: int = 95,
                           export_format: str = "JPEG (.jpg)"):
-    with _PIL_SEM:
-        img = cropped = final_image = None
-        try:
-            img = _prepare_pillow_image(image_path, (target, target), True)
+    try:
+        with _prepare_pillow_image(image_path, (target, target), True) as img:
             w, h = img.size
             if w > target or h > target:
                 crop_size = min(w, h)
                 left = (w - crop_size) // 2
-                top  = (h - crop_size) // 2
+                top = (h - crop_size) // 2
                 cropped = img.crop((left, top, left + crop_size, top + crop_size))
-                img.close(); img = None
                 if crop_size > target:
-                    tmp = cropped.resize((target, target), _get_resample_filter())
-                    cropped.close()
-                    cropped = tmp
-                final_image = cropped; cropped = None
+                    cropped = cropped.resize((target, target), _get_resample_filter())
+                final_image = cropped
             else:
                 final_image = Image.new("RGB", (target, target), (255, 255, 255))
-                off_x = (target - w) // 2
-                off_y = (target - h) // 2
-                final_image.paste(img, (off_x, off_y))
-                img.close(); img = None
+                offset_x = (target - w) // 2
+                offset_y = (target - h) // 2
+                final_image.paste(img, (offset_x, offset_y))
+
             _save_output_image(final_image, output_path, quality, export_format)
-        except Exception as exc:
-            print(f"Crop error [{image_path.name}]: {exc}")
-        finally:
-            for _obj in (img, cropped, final_image):
-                if _obj is not None:
-                    try: _obj.close()
-                    except Exception: pass
+    except Exception as exc:
+        print(f"Crop error [{image_path.name}]: {exc}")
 
 
 def resize_image(image_path: Path, output_path: Path,
@@ -698,70 +624,45 @@ def resize_image(image_path: Path, output_path: Path,
         shutil.copy2(image_path, output_path)
         return
 
-    # _PIL_SEM: giới hạn tối đa 2 thread PIL đồng thời → tránh crash đa luồng
-    with _PIL_SEM:
-        img      = None
-        resized  = None
-        canvas   = None
-        cropped  = None
-        try:
-            img = _prepare_pillow_image(
-                image_path,
-                target_hint=(max(int(width * max(scale_pct, 100) / 100), width),
-                             max(int(height * max(scale_pct, 100) / 100), height)),
-                huge_image_mode=huge_image_mode,
-            )
-
-            fit_width, fit_height = _calculate_fit_dimensions(
-                img.width, img.height, width, height
-            )
-            factor     = max(scale_pct, 1) / 100.0
-            new_width  = max(int(fit_width  * factor), 1)
+    try:
+        with _prepare_pillow_image(
+            image_path,
+            target_hint=(max(int(width * max(scale_pct, 100) / 100), width),
+                         max(int(height * max(scale_pct, 100) / 100), height)),
+            huge_image_mode=huge_image_mode,
+        ) as img:
+            fit_width, fit_height = _calculate_fit_dimensions(img.width, img.height, width, height)
+            factor = max(scale_pct, 1) / 100.0
+            new_width = max(int(fit_width * factor), 1)
             new_height = max(int(fit_height * factor), 1)
 
             resized = img.resize((new_width, new_height), _get_resample_filter())
-            img.close(); img = None
-
             canvas = Image.new("RGB", (width, height), (255, 255, 255))
 
             if new_width > width or new_height > height:
-                extra_x   = max(new_width  - width,  0)
-                extra_y   = max(new_height - height, 0)
+                extra_x = max(new_width - width, 0)
+                extra_y = max(new_height - height, 0)
                 crop_left = _calc_centered_crop_position(extra_x, int(offset_x))
-                crop_top  = _calc_centered_crop_position(extra_y, int(offset_y))
-                crop_box  = (
+                crop_top = _calc_centered_crop_position(extra_y, int(offset_y))
+                crop_box = (
                     crop_left, crop_top,
-                    crop_left + min(width,  new_width),
-                    crop_top  + min(height, new_height),
+                    crop_left + min(width, new_width),
+                    crop_top + min(height, new_height),
                 )
                 cropped = resized.crop(crop_box)
-                resized.close(); resized = None
-                paste_x = _calc_centered_paste_position(
-                    max(width  - cropped.width,  0), int(offset_x))
-                paste_y = _calc_centered_paste_position(
-                    max(height - cropped.height, 0), int(offset_y))
+                paste_x = _calc_centered_paste_position(max(width - cropped.width, 0), int(offset_x))
+                paste_y = _calc_centered_paste_position(max(height - cropped.height, 0), int(offset_y))
                 canvas.paste(cropped, (paste_x, paste_y))
-                cropped.close(); cropped = None
             else:
-                paste_x = _calc_centered_paste_position(width  - new_width,  int(offset_x))
+                paste_x = _calc_centered_paste_position(width - new_width, int(offset_x))
                 paste_y = _calc_centered_paste_position(height - new_height, int(offset_y))
                 canvas.paste(resized, (paste_x, paste_y))
-                resized.close(); resized = None
 
             _save_output_image(canvas, output_path, quality, export_format)
-
-        except MemoryError:
-            print(f"Resize MemoryError [{image_path.name}] — bỏ qua ảnh này")
-        except (UnidentifiedImageError, OSError) as exc:
-            print(f"Resize error [{image_path.name}]: {exc}")
-        except Exception as exc:
-            print(f"Resize error [{image_path.name}]: {exc}")
-        finally:
-            # Đảm bảo LUÔN giải phóng bộ nhớ dù có lỗi hay không
-            for _obj in (img, resized, cropped, canvas):
-                if _obj is not None:
-                    try: _obj.close()
-                    except Exception: pass
+    except (UnidentifiedImageError, OSError) as exc:
+        print(f"Resize error [{image_path.name}]: {exc}")
+    except Exception as exc:
+        print(f"Resize error [{image_path.name}]: {exc}")
 
 
 def resize_to_multi_sizes(src_path: Path, final_dir: Path, folder_name: str,
@@ -1178,7 +1079,7 @@ def build_live_preview_b64(image_path: str, max_size: int = _STUDIO_PREVIEW_MAX)
             data = buf.getvalue()
         b64 = base64.b64encode(data).decode("ascii")
         data_uri = f"data:image/jpeg;base64,{b64}"
-        if len(cache) > 60:  # v9.8: giới hạn 60 entry
+        if len(cache) > 60:
             cache.clear()
         cache[cache_key] = data_uri
         return data_uri
