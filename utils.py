@@ -183,20 +183,30 @@ def api_get_file_name(service, file_id: str) -> str:
         return file_id
 
 
-def api_download_file(service, file_id: str, save_path: Path) -> bool:
-    try:
-        request = service.files().get_media(fileId=file_id)
-        buffer = io.BytesIO()
-        downloader = MediaIoBaseDownload(buffer, request)
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        save_path.write_bytes(buffer.getvalue())
-        return True
-    except Exception as exc:
-        print(f"[Drive API] Lỗi tải file {file_id}: {exc}")
-        return False
+def api_download_file(service, file_id: str, save_path: Path,
+                      max_retries: int = 3) -> bool:
+    """v9.8: Streaming 4MB chunk → disk. Không dùng BytesIO buffer. Retry 3 lần."""
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = save_path.with_suffix(".tmp")
+    for attempt in range(1, max_retries + 1):
+        try:
+            request = service.files().get_media(fileId=file_id)
+            with open(tmp, "wb") as fh:
+                downloader = MediaIoBaseDownload(fh, request, chunksize=4 * 1024 * 1024)
+                done = False
+                while not done:
+                    _, done = downloader.next_chunk()
+            if tmp.exists() and tmp.stat().st_size > 0:
+                tmp.rename(save_path)
+                return True
+            tmp.unlink(missing_ok=True)
+        except Exception as exc:
+            tmp.unlink(missing_ok=True)
+            if attempt < max_retries:
+                time.sleep(2 ** attempt)
+            else:
+                print(f"[Drive API] Thất bại sau {max_retries} lần: {exc}")
+    return False
 
 
 def api_list_folder_images(service, folder_id: str) -> list:
@@ -456,6 +466,38 @@ def render_control_buttons():
             st.session_state["_ctrl_btn_epoch"] = epoch + 1
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
+
+
+def get_available_ram_mb() -> int:
+    """RAM khả dụng (MB). Fallback 512 nếu thiếu psutil."""
+    try:
+        import psutil
+        return int(psutil.virtual_memory().available / 1024 / 1024)
+    except Exception:
+        return 512
+
+
+def smart_max_workers(user_requested: int = 4, images_count: int = 1,
+                      mb_per_image: int = 100) -> int:
+    """Tính số worker an toàn theo RAM thực tế."""
+    avail   = get_available_ram_mb()
+    budget  = max(avail - 500, 64)
+    by_ram  = max(1, int(budget / mb_per_image))
+    return max(1, min(user_requested, by_ram, max(images_count, 1), 8))
+
+
+def gc_collect_safe():
+    """GC + xóa b64 cache nếu RAM < 300 MB."""
+    import gc
+    gc.collect()
+    try:
+        avail = get_available_ram_mb()
+        if avail < 300 and "_studio_thumb_b64_cache" in st.session_state:
+            st.session_state["_studio_thumb_b64_cache"] = {}
+            gc.collect()
+    except Exception:
+        pass
+
 
 
 # ╔══════════════════════════════════════════════════════════════╗
@@ -1063,7 +1105,7 @@ def build_live_preview_b64(image_path: str, max_size: int = _STUDIO_PREVIEW_MAX)
             data = buf.getvalue()
         b64 = base64.b64encode(data).decode("ascii")
         data_uri = f"data:image/jpeg;base64,{b64}"
-        if len(cache) > 300:  # tránh phình
+        if len(cache) > 60:  # v9.8: giới hạn 60 entry
             cache.clear()
         cache[cache_key] = data_uri
         return data_uri
