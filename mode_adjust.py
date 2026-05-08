@@ -52,9 +52,10 @@ _CSS_INJECTED = False
 
 
 def _inject_studio_css():
-    """Inject CSS — KHÔNG ở module level tránh crash khi import."""
+    """Inject CSS — KHÔNG ở module level, tránh lỗi 'Oh no' khi import."""
     global _CSS_INJECTED
-    if _CSS_INJECTED: return
+    if _CSS_INJECTED:
+        return
     _CSS_INJECTED = True
     st.markdown("""
 <style>
