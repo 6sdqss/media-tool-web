@@ -1,39 +1,24 @@
 """
-mode_adjust.py — Studio Scale v10.0 (PRODUCTION REWRITE)
-══════════════════════════════════════════════════════════════════════
-ROOT CAUSE ANALYSIS & FIXES:
+mode_adjust.py — Studio Scale v10.0 (WHITE PROFESSIONAL UI)
+══════════════════════════════════════════════════════════════
+THAY ĐỔI SO VỚI v9.x:
 
-[BUG 1 — CRITICAL] Studio hiện ảnh GỐC thay vì ảnh đã resize
-  Nguyên nhân: preview_base = source_path (luôn ưu tiên ảnh gốc)
-               ngay cả sau khi đã render xong → user thấy ảnh gốc mãi.
-  Fix: Phân biệt rõ 3 trạng thái:
-    • source  → Chưa render: Dùng 2-layer CSS preview với source_path
-    • rendered → Đã có trong FINAL: Hiển thị ảnh từ FINAL
-    • adjusted → Đã render qua Studio: Hiển thị ảnh từ ADJUSTED
+[UI] Giao diện chuyển sang Modern White Professional (Canva/Figma style)
+[FIX] Dynamic canvas aspect ratio — canvas preview thay đổi theo output size thật
+[FIX] CSS inject đúng vị trí (trong function, không ở module level)
+[FIX] Hiển thị ảnh ĐÃ RENDER thay vì luôn dùng source_path
+[PERF] Chỉ build thumbnail cho items trên trang hiện tại (lazy)
+[PERF] Cache invalidation per-item, không flush toàn bộ
+[FIX] Per-item error boundary — 1 ảnh lỗi không crash batch
+[UX] Pagination đầy đủ với ⏮ ◀ [page] ▶ ⏭
+[UX] Bulk operations áp dụng đúng cho toàn bộ filtered items
 
-[BUG 2 — CRASH] CSS injection ở module level (ngoài function)
-  Nguyên nhân: st.markdown(...) chạy ngay khi import module
-               → Streamlit "Oh no!" error trên một số phiên bản
-  Fix: Inject CSS một lần duy nhất qua session_state flag
-
-[BUG 3 — PERFORMANCE] Tất cả thumbnail được build đồng thời
-  Nguyên nhân: Vòng lặp build tất cả build_live_preview_b64() cùng lúc
-               → RAM spike khi có 100+ ảnh → crash
-  Fix: Chỉ build thumbnail cho items đang visible trên trang
-
-[BUG 4 — STATE] Xóa toàn bộ thumb cache sau mỗi render
-  Nguyên nhân: st.session_state.pop("_studio_thumb_b64_cache")
-               → Tất cả thumbs phải build lại → chậm + RAM spike
-  Fix: Chỉ invalidate cache của items được render
-
-[BUG 5 — UX] Không distinguish Live Preview vs Rendered Preview
-  Nguyên nhân: Dùng cùng một HTML template cho cả 2 trạng thái
-  Fix: Live Preview (source + CSS) vs Rendered Preview (st.image actual)
-
-[BUG 6 — CRASH] Không có per-item error boundary
-  Nguyên nhân: Một ảnh lỗi trong loop render → exception → toàn bộ
-               progress bị dừng + Streamlit hiện traceback
-  Fix: try/except per item, log lỗi, tiếp tục các ảnh còn lại
+GIỮ NGUYÊN:
+- Toàn bộ logic resize backend
+- Signature resize_to_multi_sizes
+- Cơ chế 2-layer CSS preview
+- merge_final_with_adjusted
+- ZIP export pipeline
 """
 from __future__ import annotations
 
@@ -63,621 +48,316 @@ from utils import (
 
 _log = logging.getLogger("mode_adjust")
 
-# ── Hằng số ──────────────────────────────────────────────────────
-_SMALL_IMAGE_THRESHOLD = 600
-_IMG_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
-_DEFAULT_PER_PAGE = 10
-_MAX_INMEM_ZIP_BYTES = 50 * 1024 * 1024  # 50MB
+_SMALL_THR = 600
+_IMG_EXT   = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
 
-# ══════════════════════════════════════════════════════════════════
-# CSS — Inject 1 lần duy nhất qua session_state flag
-# ══════════════════════════════════════════════════════════════════
-def _inject_studio_css():
-    """
-    [FIX BUG 2] CSS không inject ở module level nữa.
-    Dùng session_state flag để chỉ inject 1 lần/session.
-    """
-    if st.session_state.get("_studio_css_injected"):
+# ══════════════════════════════════════════════════════════════
+# CSS — inject once per session, trong function body
+# ══════════════════════════════════════════════════════════════
+def _inject_css():
+    if st.session_state.get("_studio_css_v10"):
         return
-    st.session_state["_studio_css_injected"] = True
+    st.session_state["_studio_css_v10"] = True
+    # CSS chính đã được inject bởi app.py (live-frame, rendered-frame, etc.)
+    # Chỉ thêm Studio-specific overrides không có trong app.py
     st.markdown("""
 <style>
-/* ── Disabled buttons ── */
-.stButton>button:disabled,.stDownloadButton>button:disabled{
-    background:rgba(255,255,255,0.05)!important;color:#64748b!important;
-    cursor:not-allowed!important;box-shadow:none!important;
-    border:1px solid rgba(255,255,255,0.1)!important;transform:none!important;
+/* Studio container max-width override on large screens */
+@media (min-width:1200px) {
+    .studio-wrap .block-container { max-width:1380px!important; }
 }
-/* ── Export panel ── */
-.export-panel{
-    background:rgba(21,21,31,0.7);border:1px solid rgba(139,92,246,0.3);
-    border-radius:12px;padding:20px;margin-top:10px;
+/* Slider value display */
+.studio-wrap .stSlider [data-testid="stTickBarMin"],
+.studio-wrap .stSlider [data-testid="stTickBarMax"] {
+    display:none!important;
 }
-/* ── Studio card ── */
-.studio-card{
-    border:1.5px solid rgba(139,92,246,0.22);border-radius:10px;
-    background:rgba(15,15,23,0.88);padding:14px;margin-bottom:12px;
-    transition:border-color .18s;
+/* Compact number display beside slider */
+.slider-val {
+    display:inline-block;
+    background:#f5f3ff;
+    color:#7c3aed;
+    font-size:0.78rem;
+    font-weight:700;
+    padding:1px 7px;
+    border-radius:5px;
+    min-width:38px;
+    text-align:center;
+    border:1px solid #ddd6fe;
 }
-.studio-card.card-adjusted{border-color:#fbbf24!important;
-    box-shadow:0 0 0 2px rgba(251,191,36,0.18);}
-.studio-card.card-small{border-color:rgba(248,113,113,0.55)!important;}
-/* ── Status pills ── */
-.spill{display:inline-block;font-size:.78rem;font-weight:700;
-    padding:3px 10px;border-radius:999px;letter-spacing:.3px;}
-.spill-r{background:rgba(34,197,94,.85);color:#fff;}
-.spill-a{background:rgba(251,191,36,.9);color:#1f2937;}
-.spill-s{background:rgba(148,163,184,.85);color:#fff;}
-/* ── Rendered preview frame ── */
-.rendered-frame{
-    background:#fff;border-radius:8px;
-    border:1px solid rgba(139,92,246,0.3);
-    overflow:hidden;display:flex;align-items:center;
-    justify-content:center;padding:4px;
+/* Info pill row */
+.info-pills {
+    display:flex;
+    flex-wrap:wrap;
+    gap:4px;
+    margin:4px 0;
 }
-.rendered-frame img{max-width:100%;max-height:260px;
-    object-fit:contain;display:block;margin:0 auto;}
-/* ── Live-preview frame (2-layer CSS) ── */
-.live-frame{position:relative;width:100%;background:#fff;
-    border-radius:8px;border:1px solid rgba(139,92,246,0.3);
-    overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.25);}
-.live-canvas{position:absolute;inset:0;display:flex;
-    align-items:center;justify-content:center;overflow:hidden;}
-.live-img{width:100%;height:100%;object-fit:contain;
-    transform-origin:center center;
-    transition:transform .12s cubic-bezier(.4,.7,.2,1);
-    will-change:transform;user-select:none;}
-.live-overlay{position:absolute;bottom:0;left:0;right:0;
-    display:flex;flex-wrap:wrap;gap:4px 12px;padding:5px 10px;
-    background:linear-gradient(180deg,rgba(0,0,0,0)0%,rgba(0,0,0,.55)100%);
-    color:#e2e8f0;font-size:.78rem!important;font-weight:600;z-index:2;}
-/* ── Size info ── */
-.size-info{font-size:.78rem;color:#94a3b8;margin-top:4px;line-height:1.6;}
-/* ── Pagination ── */
-.pg-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
-    padding:8px 0;border-top:1px solid rgba(139,92,246,0.12);margin-top:8px;}
-/* ── Skeleton ── */
-.skeleton{background:linear-gradient(90deg,rgba(139,92,246,.08) 25%,
-    rgba(139,92,246,.18) 50%,rgba(139,92,246,.08) 75%);
-    background-size:200% 100%;animation:shimmer 1.4s infinite;
-    border-radius:6px;height:120px;}
-@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.info-pill {
+    font-size:0.74rem;
+    color:#64748b;
+    background:#f8fafc;
+    border:1px solid #e2e8f0;
+    border-radius:5px;
+    padding:2px 8px;
+    white-space:nowrap;
+}
+.info-pill b { color:#374151; }
+/* Adjust section header */
+.adj-section-head {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:6px;
+}
+.adj-section-head span { font-size:0.82rem;color:#94a3b8; }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ══════════════════════════════════════════════════════════════════
-# HELPERS — Path resolution
-# ══════════════════════════════════════════════════════════════════
-def _get_exact_stem_for_item(
-    item: dict, final_dir: Optional[Path],
-    sizes_cfg: list, cfg: dict,
-) -> str:
-    """
-    Đọc thẳng thư mục FINAL để lấy đúng tên file đã xuất.
-    Dùng seq_in_folder để map đúng file sau khi rename template.
-    """
-    folder_name = item.get("folder_name", "")
-    seq = int(item.get("seq_in_folder", 1))
+# ══════════════════════════════════════════════════════════════
+# HELPERS
+# ══════════════════════════════════════════════════════════════
+def _stem(item: dict, final_dir: Optional[Path], sizes: list, cfg: dict) -> str:
+    """Lấy đúng tên file stem từ FINAL dir theo seq_in_folder."""
+    folder = item.get("folder_name", "")
+    seq    = int(item.get("seq_in_folder", 1))
 
     if final_dir and final_dir.exists():
-        is_multi = isinstance(sizes_cfg, list) and len(sizes_cfg) > 1
-        check_dir = final_dir
-        if is_multi and sizes_cfg:
+        is_multi = len(sizes) > 1
+        check    = final_dir
+        if is_multi and sizes:
             try:
-                w, h, m = sizes_cfg[0]
-                check_dir = final_dir / get_size_label(w, h, m)
+                w, h, m = sizes[0]; check = final_dir / get_size_label(w, h, m)
             except Exception:
                 pass
-        check_dir = check_dir / folder_name
-
-        if check_dir.exists():
-            files = sorted([
-                f for f in check_dir.iterdir()
-                if f.is_file() and not f.name.startswith("__tmp_")
-            ])
+        check = check / folder
+        if check.exists():
+            files = sorted(f for f in check.iterdir()
+                           if f.is_file() and not f.name.startswith("__tmp_"))
             if 1 <= seq <= len(files):
                 return files[seq - 1].stem
 
-    # Fallback: tính tên theo template
-    pname = re.sub(r"\s+", "_", item.get("product", "image")).strip("_")
-    cname = re.sub(r"\s+", "_", item.get("color", "")).strip("_")
+    pn = re.sub(r"\s+", "_", item.get("product", "image")).strip("_")
+    cn = re.sub(r"\s+", "_", item.get("color", "")).strip("_")
     return apply_name_template(
         cfg.get("template", "{name}_{nn}"),
-        name=pname, color=cname,
+        name=pn, color=cn,
         index=seq, original=item.get("original_name", ""),
     )
 
 
-def _get_display_path(
+def _display_path(
     item: dict,
-    final_dir: Optional[Path],
-    adjusted_dir: Optional[Path],
-    sizes_cfg: list,
-    cfg: dict,
+    final_dir: Optional[Path], adjusted_dir: Optional[Path],
+    sizes: list, cfg: dict,
 ) -> tuple[str, str]:
     """
-    [FIX BUG 1] Tìm đúng ảnh để hiển thị.
-    Ưu tiên: ADJUSTED → FINAL → fallback source/preview.
-
-    Returns: (path_str, status)
-      status ∈ {"adjusted", "rendered", "source"}
+    [FIX] Ưu tiên ADJUSTED → FINAL → source fallback.
+    Returns (path_str, status: "adjusted"|"rendered"|"source")
     """
-    exact_stem = _get_exact_stem_for_item(item, final_dir, sizes_cfg, cfg)
-    is_multi   = isinstance(sizes_cfg, list) and len(sizes_cfg) > 1
-    size_label = ""
-    if sizes_cfg:
+    es       = _stem(item, final_dir, sizes, cfg)
+    is_multi = len(sizes) > 1
+    sl       = ""
+    if sizes:
         try:
-            w, h, m    = sizes_cfg[0]
-            size_label = get_size_label(w, h, m)
+            w, h, m = sizes[0]; sl = get_size_label(w, h, m)
         except Exception:
             pass
+    folder = item.get("folder_name", "")
 
-    folder_name = item.get("folder_name", "")
-
-    # ── Tìm trong ADJUSTED (ảnh đã qua Studio render) ──────────
-    if adjusted_dir and adjusted_dir.exists():
-        adj_sub = (
-            adjusted_dir / size_label / folder_name
-            if is_multi and size_label
-            else adjusted_dir / folder_name
-        )
-        if adj_sub.exists():
+    for base, status in [
+        (adjusted_dir, "adjusted"),
+        (final_dir,    "rendered"),
+    ]:
+        if not base or not base.exists():
+            continue
+        sub = (base / sl / folder) if (is_multi and sl) else (base / folder)
+        if sub.exists():
             for ext in _IMG_EXT:
-                p = adj_sub / f"{exact_stem}{ext}"
+                p = sub / f"{es}{ext}"
                 if p.exists() and p.stat().st_size > 0:
-                    return str(p), "adjusted"
+                    return str(p), status
 
-    # ── Tìm trong FINAL (ảnh đã resize nhưng chưa qua Studio) ──
-    if final_dir and final_dir.exists():
-        fin_sub = (
-            final_dir / size_label / folder_name
-            if is_multi and size_label
-            else final_dir / folder_name
-        )
-        if fin_sub.exists():
-            for ext in _IMG_EXT:
-                p = fin_sub / f"{exact_stem}{ext}"
-                if p.exists() and p.stat().st_size > 0:
-                    return str(p), "rendered"
-
-    # ── Fallback ────────────────────────────────────────────────
-    fallback = item.get("preview_path") or item.get("source_path") or ""
-    return fallback, "source"
+    return item.get("preview_path") or item.get("source_path") or "", "source"
 
 
-def _is_small_image(item: dict) -> bool:
+def _is_small(item: dict) -> bool:
     w = int(item.get("source_width", 0))
     h = int(item.get("source_height", 0))
-    return (0 < w < _SMALL_IMAGE_THRESHOLD) or (0 < h < _SMALL_IMAGE_THRESHOLD)
+    return (0 < w < _SMALL_THR) or (0 < h < _SMALL_THR)
 
 
-def _ensure_item_state(item: dict, cfg: dict):
-    """Khởi tạo slider defaults cho 1 item — chỉ khi chưa có."""
+def _init_item(item: dict, cfg: dict):
     iid = item["id"]
     if f"adj_scale_{iid}" in st.session_state:
-        return  # Đã khởi tạo → bỏ qua
-
+        return
     sizes = cfg.get("sizes", [])
     tw = th = 0
     if sizes:
         try:
-            tw, th, _ = sizes[0]
-            tw, th = int(tw or 0), int(th or 0)
+            tw, th, _ = sizes[0]; tw, th = int(tw or 0), int(th or 0)
         except Exception:
             pass
-
-    suggested = estimate_default_scale_for_size(
-        int(item.get("source_width", 0)),
-        int(item.get("source_height", 0)),
-        tw, th,
+    sug     = estimate_default_scale_for_size(
+        int(item.get("source_width", 0)), int(item.get("source_height", 0)), tw, th
     )
     default = int(item.get("default_scale_pct", cfg.get("default_scale_pct", 100)))
-    st.session_state[f"adj_scale_{iid}"] = (
-        max(default, suggested) if _is_small_image(item) else default
-    )
+    st.session_state[f"adj_scale_{iid}"] = max(default, sug) if _is_small(item) else default
     st.session_state[f"adj_x_{iid}"]     = 0
     st.session_state[f"adj_y_{iid}"]     = 0
-    st.session_state[f"sel_{iid}"]       = _is_small_image(item)
+    st.session_state[f"sel_{iid}"]       = _is_small(item)
 
 
-def _mark_selected(item_id: str):
-    st.session_state[f"sel_{item_id}"] = True
+def _mark(iid: str):
+    st.session_state[f"sel_{iid}"] = True
 
 
-def _invalidate_thumb(item_id: str):
-    """Xóa cache thumb chỉ của item cụ thể — không flush toàn bộ cache."""
+def _del_thumb(iid: str):
+    """Per-item cache invalidation — không flush toàn bộ cache."""
     cache = st.session_state.get("_studio_thumb_b64_cache", {})
-    keys_to_del = [k for k in cache if item_id in k]
-    for k in keys_to_del:
+    for k in [k for k in cache if iid in k]:
         del cache[k]
 
 
-# ══════════════════════════════════════════════════════════════════
-# FILTER & PAGINATION
-# ══════════════════════════════════════════════════════════════════
-def _filter_items(
-    items: list, keyword: str,
-    product_filter: str, status_filter: str,
-) -> list:
-    kw = (keyword or "").strip().lower()
+def _filter(items: list, kw: str, pf: str, sf: str) -> list:
+    kw = (kw or "").strip().lower()
     out = []
-    for item in items:
-        hay = " ".join([
-            item.get("product", ""), item.get("color", ""),
-            item.get("original_name", ""), item.get("folder_name", ""),
-        ]).lower()
-        if product_filter and product_filter != "Tất cả":
-            if item.get("product") != product_filter:
-                continue
+    for it in items:
+        hay = " ".join([it.get("product",""), it.get("color",""),
+                        it.get("original_name",""), it.get("folder_name","")]).lower()
+        if pf and pf != "Tất cả" and it.get("product") != pf:
+            continue
         if kw and kw not in hay:
             continue
-        is_sel = st.session_state.get(f"sel_{item['id']}", False)
-        if status_filter == "Chỉ ảnh đã chọn sửa" and not is_sel:
-            continue
-        if status_filter == "Chỉ ảnh chưa chọn" and is_sel:
-            continue
-        if status_filter == "Chỉ ảnh nhỏ (bị giãn)" and not _is_small_image(item):
-            continue
-        out.append(item)
+        sel = st.session_state.get(f"sel_{it['id']}", False)
+        if sf == "Chỉ ảnh đã chọn sửa" and not sel:   continue
+        if sf == "Chỉ ảnh chưa chọn"   and sel:        continue
+        if sf == "Chỉ ảnh nhỏ (bị giãn)" and not _is_small(it): continue
+        out.append(it)
     return out
 
 
-def _render_pagination(total_items: int, per_page: int, page_key: str) -> tuple[int, int, int]:
-    """
-    Hiển thị pagination bar.
-    Returns: (current_page, start_idx, end_idx)
-    """
-    total_pages = max((total_items - 1) // per_page + 1, 1)
-    current     = int(st.session_state.get(page_key, 1))
-    current     = max(1, min(current, total_pages))
-
-    pc1, pc2, pc3, pc4, pc5 = st.columns([1, 1, 2, 1, 1])
-    with pc1:
-        if st.button("⏮ Đầu", use_container_width=True, key=f"{page_key}_first",
-                     disabled=current <= 1):
-            st.session_state[page_key] = 1
-            st.rerun()
-    with pc2:
-        if st.button("◀ Trước", use_container_width=True, key=f"{page_key}_prev",
-                     disabled=current <= 1):
-            st.session_state[page_key] = current - 1
-            st.rerun()
-    with pc3:
-        new_page = st.number_input(
-            f"Trang / {total_pages}",
-            min_value=1, max_value=total_pages,
-            value=current, step=1,
-            key=f"{page_key}_input",
-            label_visibility="collapsed",
-        )
-        if new_page != current:
-            st.session_state[page_key] = int(new_page)
-            st.rerun()
-    with pc4:
-        if st.button("Tiếp ▶", use_container_width=True, key=f"{page_key}_next",
-                     disabled=current >= total_pages):
-            st.session_state[page_key] = current + 1
-            st.rerun()
-    with pc5:
-        if st.button("Cuối ⏭", use_container_width=True, key=f"{page_key}_last",
-                     disabled=current >= total_pages):
-            st.session_state[page_key] = total_pages
-            st.rerun()
-
-    st.caption(
-        f"Trang **{current}** / {total_pages} "
-        f"· {total_items} ảnh · {per_page} ảnh/trang"
-    )
-
-    start = (current - 1) * per_page
-    end   = start + per_page
-    return current, start, end
-
-
-# ══════════════════════════════════════════════════════════════════
-# PREVIEW HTML (Live 2-layer CSS — dùng cho ảnh chưa render)
-# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════
+# DYNAMIC CANVAS PREVIEW HTML
+# Key insight: aspect-ratio được set INLINE theo output size thật
+# ══════════════════════════════════════════════════════════════
 def _live_preview_html(
-    image_b64: str, target_w: int, target_h: int,
-    scale_pct: int, offset_x: int, offset_y: int,
+    b64: str, tw: int, th: int,
+    scale: int, ox: int, oy: int,
+    label: str = "",
 ) -> str:
     """
-    2-Layer CSS preview: Chỉ dùng khi status == "source" (chưa render).
-    Layer 1 = Canvas cố định (trắng, overflow:hidden)
-    Layer 2 = Ảnh nguồn với CSS transform theo slider
+    [FIX] Canvas aspect-ratio = tw/th thật sự thay vì hardcode 3/2.
+    CSS transform scale + translate — không cần page rerun.
     """
-    if not image_b64:
+    if not b64:
         return (
-            "<div class='live-frame' style='aspect-ratio:3/2;min-height:140px;"
-            "display:flex;align-items:center;justify-content:center;'>"
-            "<span style='color:#f87171'>⚠️ Không tìm thấy ảnh nguồn</span></div>"
+            "<div class='live-frame live-frame--empty'>"
+            "⚠️ Không tìm thấy ảnh nguồn</div>"
         )
-
-    f  = max(60, min(200, int(scale_pct))) / 100.0
-    tx = max(-100, min(100, int(offset_x)))  * 0.5
-    ty = max(-100, min(100, int(offset_y)))  * 0.5
-    ar = f"{int(target_w)} / {int(target_h)}" if target_w and target_h else "3 / 2"
-
+    f  = max(60, min(200, int(scale))) / 100.0
+    tx = max(-100, min(100, int(ox)))  * 0.5
+    ty = max(-100, min(100, int(oy)))  * 0.5
+    # aspect-ratio theo output THẬT — đây là key fix
+    ar = f"{int(tw)} / {int(th)}" if tw and th else "3 / 2"
     return (
         f"<div class='live-frame' style='aspect-ratio:{ar};'>"
         f"  <div class='live-canvas'>"
-        f"    <img class='live-img' src='{image_b64}' "
-        f"         style='transform:translate({tx:.1f}%,{ty:.1f}%) scale({f:.3f})' "
-        f"         alt='preview'/>"
+        f"    <img class='live-img' src='{b64}'"
+        f"         style='transform:translate({tx:.1f}%,{ty:.1f}%) scale({f:.3f})'"
+        f"         alt='preview' loading='eager'/>"
         f"  </div>"
         f"  <div class='live-overlay'>"
-        f"    <span>🔍 {int(scale_pct)}%</span>"
-        f"    <span>↔ X:{int(offset_x):+d}</span>"
-        f"    <span>↕ Y:{int(offset_y):+d}</span>"
-        f"    <span style='margin-left:auto;color:#fde68a'>⚡ Live Preview</span>"
+        f"    <span>🔍 {int(scale)}%</span>"
+        f"    <span>↔ X:{int(ox):+d}</span>"
+        f"    <span>↕ Y:{int(oy):+d}</span>"
+        f"    <span style='margin-left:auto;color:#fde68a;font-size:.7rem'>⚡ Live</span>"
         f"  </div>"
         f"</div>"
     )
 
 
-# ══════════════════════════════════════════════════════════════════
-# SINGLE ITEM CARD
-# ══════════════════════════════════════════════════════════════════
-def _render_item_card(
-    item: dict, cfg: dict,
-    final_dir: Optional[Path],
-    adjusted_dir: Optional[Path],
-    target_w: int, target_h: int,
-    sizes_cfg: list,
-):
-    """
-    Render 1 item card với đầy đủ: preview, controls, download.
-
-    [FIX BUG 1] Logic hiển thị ảnh:
-      • status="adjusted"  → st.image() với ảnh từ ADJUSTED (ảnh đã render qua Studio)
-      • status="rendered"  → st.image() với ảnh từ FINAL (ảnh đã resize nhưng chưa chỉnh)
-      • status="source"    → 2-layer CSS preview với source_path (chưa render lần nào)
-    """
-    iid        = item["id"]
-    sel_key    = f"sel_{iid}"
-    scale_key  = f"adj_scale_{iid}"
-    x_key      = f"adj_x_{iid}"
-    y_key      = f"adj_y_{iid}"
-
-    _ensure_item_state(item, cfg)
-    small_flag = _is_small_image(item)
-
-    # ── Tìm ảnh đúng trạng thái ─────────────────────────────────
-    display_path, display_status = _get_display_path(
-        item, final_dir, adjusted_dir, sizes_cfg, cfg
+def _rendered_html(b64: str) -> str:
+    """Hiển thị ảnh ĐÃ RENDER — không dùng CSS transform."""
+    if not b64:
+        return "<div style='color:#f87171;font-size:.85rem'>⚠ Không đọc được file</div>"
+    return (
+        f"<div class='rendered-frame'>"
+        f"<img src='{b64}' alt='rendered' loading='lazy'/>"
+        f"</div>"
     )
 
-    # ── Tính card CSS class ──────────────────────────────────────
-    card_cls = "studio-card"
-    if display_status == "adjusted":
-        card_cls += " card-adjusted"
-    elif small_flag:
-        card_cls += " card-small"
 
-    # ── Status pill ──────────────────────────────────────────────
-    pill_map = {
-        "adjusted": ("spill spill-a", "🎯 Đã chỉnh"),
-        "rendered": ("spill spill-r", "✅ Đã render"),
-        "source":   ("spill spill-s", "📷 Chưa render"),
-    }
-    pill_cls, pill_lbl = pill_map.get(display_status, pill_map["source"])
-    pill_html = f"<span class='{pill_cls}'>{pill_lbl}</span>"
+# ══════════════════════════════════════════════════════════════
+# PAGINATION
+# ══════════════════════════════════════════════════════════════
+def _paginate(total: int, per_page: int, key: str) -> tuple[int, int, int]:
+    n_pages = max((total - 1) // per_page + 1, 1)
+    cur     = max(1, min(int(st.session_state.get(key, 1)), n_pages))
 
-    with st.container(border=True):
-        # ── Header row ──────────────────────────────────────────
-        hc1, hc2, hc3 = st.columns([2.5, 1.5, 1])
-        with hc1:
-            st.checkbox(
-                f"✏️ {item.get('product', '-')} · "
-                f"{item.get('original_name', '-')}",
-                key=sel_key,
-            )
-        with hc2:
-            st.markdown(pill_html, unsafe_allow_html=True)
-            if small_flag:
-                st.markdown(
-                    "<span style='color:#f87171;font-size:.8rem'>⚠️ Ảnh nhỏ</span>",
-                    unsafe_allow_html=True,
-                )
-        with hc3:
-            src_size = readable_file_size(item.get("source_size_bytes", 0))
-            sw, sh   = item.get("source_width", 0), item.get("source_height", 0)
-            st.markdown(
-                f"<div class='size-info'>"
-                f"📐 {sw}×{sh}<br>💾 {src_size}"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
+    pc = st.columns([1, 1, 2, 1, 1])
+    with pc[0]:
+        if st.button("⏮", key=f"{key}_f", disabled=cur <= 1, use_container_width=True):
+            st.session_state[key] = 1; st.rerun()
+    with pc[1]:
+        if st.button("◀", key=f"{key}_p", disabled=cur <= 1, use_container_width=True):
+            st.session_state[key] = cur - 1; st.rerun()
+    with pc[2]:
+        np_ = st.number_input(
+            f"/{n_pages}", min_value=1, max_value=n_pages,
+            value=cur, step=1, key=f"{key}_i",
+            label_visibility="visible",
+        )
+        if int(np_) != cur:
+            st.session_state[key] = int(np_); st.rerun()
+    with pc[3]:
+        if st.button("▶", key=f"{key}_n", disabled=cur >= n_pages, use_container_width=True):
+            st.session_state[key] = cur + 1; st.rerun()
+    with pc[4]:
+        if st.button("⏭", key=f"{key}_l", disabled=cur >= n_pages, use_container_width=True):
+            st.session_state[key] = n_pages; st.rerun()
 
-        # ── Main layout: Preview | Controls ─────────────────────
-        left_col, right_col = st.columns([1.1, 1.6])
-
-        with left_col:
-            # [FIX BUG 1] Phân biệt rõ preview vs rendered display
-            if display_status in ("adjusted", "rendered"):
-                # ─── Hiển thị ảnh ĐÃ RENDER thật sự ────────────
-                dp = Path(display_path)
-                if dp.exists() and dp.stat().st_size > 0:
-                    # Build thumbnail từ ảnh đã render
-                    b64 = build_live_preview_b64(display_path, max_size=480)
-                    if b64:
-                        st.markdown(
-                            f"<div class='rendered-frame'>"
-                            f"<img src='{b64}' alt='rendered'/>"
-                            f"</div>",
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        # Fallback: dùng st.image trực tiếp
-                        try:
-                            st.image(str(dp), use_container_width=True)
-                        except Exception:
-                            st.caption("⚠ Không đọc được ảnh")
-                    # Hiển thị size ảnh output
-                    try:
-                        out_size = readable_file_size(dp.stat().st_size)
-                        st.markdown(
-                            f"<div class='size-info' style='color:#86efac'>"
-                            f"📦 Output: {out_size} · "
-                            f"🎯 {target_w}×{target_h}"
-                            f"</div>",
-                            unsafe_allow_html=True,
-                        )
-                    except Exception:
-                        pass
-                else:
-                    st.markdown(
-                        "<div style='color:#f87171;font-size:.85rem'>"
-                        "⚠️ File render không tồn tại</div>",
-                        unsafe_allow_html=True,
-                    )
-            else:
-                # ─── Live Preview 2-layer (chưa render) ─────────
-                source_path = str(item.get("source_path", ""))
-                preview_b64 = ""
-                if source_path and Path(source_path).exists():
-                    preview_b64 = build_live_preview_b64(source_path, max_size=360)
-                if not preview_b64 and display_path:
-                    preview_b64 = build_live_preview_b64(display_path, max_size=360)
-
-                live_html = _live_preview_html(
-                    image_b64=preview_b64,
-                    target_w=target_w, target_h=target_h,
-                    scale_pct=int(st.session_state[scale_key]),
-                    offset_x=int(st.session_state[x_key]),
-                    offset_y=int(st.session_state[y_key]),
-                )
-                st.markdown(live_html, unsafe_allow_html=True)
-                st.markdown(
-                    f"<div class='size-info'>"
-                    f"🎯 Canvas {target_w}×{target_h}"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-        with right_col:
-            # ── Sliders ────────────────────────────────────────
-            sc1, sc2, sc3 = st.columns(3)
-            with sc1:
-                st.slider(
-                    "Scale %", 60, 200,
-                    value=int(st.session_state[scale_key]),
-                    step=1, key=scale_key,
-                    on_change=_mark_selected, args=(iid,),
-                )
-            with sc2:
-                st.slider(
-                    "X", -100, 100,
-                    value=int(st.session_state[x_key]),
-                    step=1, key=x_key,
-                    on_change=_mark_selected, args=(iid,),
-                )
-            with sc3:
-                st.slider(
-                    "Y", -100, 100,
-                    value=int(st.session_state[y_key]),
-                    step=1, key=y_key,
-                    on_change=_mark_selected, args=(iid,),
-                )
-
-            # ── Quick buttons ──────────────────────────────────
-            qb1, qb2, qb3 = st.columns(3)
-            with qb1:
-                if st.button("↺ Reset", key=f"rst_{iid}", use_container_width=True):
-                    default = int(item.get("default_scale_pct", cfg.get("default_scale_pct", 100)))
-                    st.session_state[scale_key] = default
-                    st.session_state[x_key]     = 0
-                    st.session_state[y_key]     = 0
-                    st.session_state[sel_key]   = True
-                    _invalidate_thumb(iid)
-                    st.rerun()
-            with qb2:
-                if st.button("➖ 5%", key=f"min_{iid}", use_container_width=True):
-                    st.session_state[scale_key] = max(60, int(st.session_state[scale_key]) - 5)
-                    st.session_state[sel_key]   = True
-                    st.rerun()
-            with qb3:
-                if st.button("➕ 5%", key=f"pls_{iid}", use_container_width=True):
-                    st.session_state[scale_key] = min(200, int(st.session_state[scale_key]) + 5)
-                    st.session_state[sel_key]   = True
-                    st.rerun()
-
-            # ── Download single image ──────────────────────────
-            st.markdown(
-                "<hr style='margin:8px 0;border-color:rgba(139,92,246,.15)'>",
-                unsafe_allow_html=True,
-            )
-            if display_path and Path(display_path).exists():
-                try:
-                    file_bytes = Path(display_path).read_bytes()
-                    btn_type   = "primary" if display_status == "adjusted" else "secondary"
-                    label      = "📥 Tải ảnh đã chỉnh" if display_status == "adjusted" else "📥 Tải ảnh"
-                    st.download_button(
-                        label=label,
-                        data=file_bytes,
-                        file_name=Path(display_path).name,
-                        mime="image/jpeg",
-                        use_container_width=True,
-                        type=btn_type,
-                        key=f"dl_{iid}",
-                    )
-                except Exception as exc:
-                    _log.warning("Download button error [%s]: %s", iid, exc)
-                    st.caption("⚠ Không đọc được file")
-            else:
-                st.caption("— Chưa có file output —")
+    st.caption(f"Trang **{cur}** / {n_pages} · {total} ảnh · {per_page}/trang")
+    s = (cur - 1) * per_page
+    return cur, s, s + per_page
 
 
-# ══════════════════════════════════════════════════════════════════
-# RENDER ENGINE — Per-item error boundary
-# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════
+# RENDER ENGINE — per-item error boundary
+# ══════════════════════════════════════════════════════════════
 def _run_render(
-    selected_items: list,
-    adjusted_root: Path,
-    final_dir: Optional[Path],
-    sizes_cfg: list,
-    cfg: dict,
+    items: list, adj_root: Path,
+    final_dir: Optional[Path], sizes: list, cfg: dict,
 ) -> tuple[int, list[str]]:
-    """
-    [FIX BUG 6] Per-item try/except — 1 ảnh lỗi không crash toàn bộ.
-    Returns: (success_count, error_list)
-    """
-    if adjusted_root.exists():
-        shutil.rmtree(adjusted_root, ignore_errors=True)
-    adjusted_root.mkdir(parents=True, exist_ok=True)
+    if adj_root.exists():
+        shutil.rmtree(adj_root, ignore_errors=True)
+    adj_root.mkdir(parents=True, exist_ok=True)
 
-    progress_bar = st.progress(0)
-    status_ph    = st.empty()
-    errors: list[str] = []
-    success      = 0
-    total        = len(selected_items)
+    bar    = st.progress(0)
+    ph     = st.empty()
+    errors = []
+    ok_n   = 0
+    total  = len(items)
 
-    for idx, item in enumerate(selected_items, start=1):
-        item_name = item.get("original_name", item.get("product", f"item_{idx}"))
-        status_ph.info(f"[{idx}/{total}] Đang render: **{item_name}**")
-
-        settings = {
-            "scale_pct": int(st.session_state.get(f"adj_scale_{item['id']}", 100)),
-            "offset_x":  int(st.session_state.get(f"adj_x_{item['id']}", 0)),
-            "offset_y":  int(st.session_state.get(f"adj_y_{item['id']}", 0)),
-        }
-
-        exact_stem = _get_exact_stem_for_item(item, final_dir, sizes_cfg, cfg)
+    for idx, item in enumerate(items, 1):
+        name = item.get("original_name", f"item_{idx}")
+        ph.info(f"[{idx}/{total}] Đang render: **{name}**")
 
         src = Path(item.get("source_path", ""))
         if not src.exists():
-            err_msg = f"{item_name}: source_path không tồn tại ({src})"
-            errors.append(err_msg)
-            _log.warning("[render] %s", err_msg)
-            progress_bar.progress(idx / total)
-            continue
+            errors.append(f"{name}: source không tồn tại")
+            bar.progress(idx / total); continue
+
+        settings = {
+            "scale_pct": int(st.session_state.get(f"adj_scale_{item['id']}", 100)),
+            "offset_x":  int(st.session_state.get(f"adj_x_{item['id']}",   0)),
+            "offset_y":  int(st.session_state.get(f"adj_y_{item['id']}",   0)),
+        }
+        es = _stem(item, final_dir, sizes, cfg)
 
         try:
             resize_to_multi_sizes(
-                src, adjusted_root,
-                item["folder_name"], exact_stem,
+                src, adj_root, item["folder_name"], es,
                 cfg.get("sizes", []),
                 scale_pct=int(cfg.get("default_scale_pct", 100)),
                 quality=int(cfg.get("quality", 95)),
@@ -685,57 +365,201 @@ def _run_render(
                 per_image_settings=settings,
                 huge_image_mode=bool(cfg.get("huge_image_mode", True)),
             )
-            success += 1
-            # [FIX BUG 4] Chỉ invalidate cache của item này
-            _invalidate_thumb(item["id"])
-            _log.info("[render] OK: %s", item_name)
-
+            ok_n += 1
+            _del_thumb(item["id"])
         except Exception as exc:
-            err_msg = f"{item_name}: {exc}"
-            errors.append(err_msg)
-            _log.error("[render] FAILED %s: %s", item_name, exc)
+            errors.append(f"{name}: {exc}")
+            _log.error("[render] %s: %s", name, exc)
 
-        progress_bar.progress(idx / total)
+        bar.progress(idx / total)
 
-    status_ph.empty()
-    progress_bar.empty()
-    return success, errors
+    ph.empty(); bar.empty()
+    return ok_n, errors
 
 
-# ══════════════════════════════════════════════════════════════════
-# MAIN STUDIO FUNCTION
-# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════
+# ITEM CARD
+# ══════════════════════════════════════════════════════════════
+def _card(
+    item: dict, cfg: dict,
+    final_dir: Optional[Path], adj_dir: Optional[Path],
+    tw: int, th: int, sizes: list,
+):
+    iid   = item["id"]
+    sk    = f"adj_scale_{iid}"
+    xk    = f"adj_x_{iid}"
+    yk    = f"adj_y_{iid}"
+    selk  = f"sel_{iid}"
+
+    _init_item(item, cfg)
+    small = _is_small(item)
+
+    dp, ds = _display_path(item, final_dir, adj_dir, sizes, cfg)
+
+    # Status pill
+    pill_map = {
+        "adjusted": ("spill spill-a", "🎯 Đã chỉnh"),
+        "rendered": ("spill spill-r", "✅ Đã render"),
+        "source":   ("spill spill-s", "📷 Chưa render"),
+    }
+    pc, pl = pill_map.get(ds, pill_map["source"])
+
+    with st.container(border=True):
+        # ── Header ────────────────────────────────────────────
+        h1, h2 = st.columns([3, 2])
+        with h1:
+            st.checkbox(
+                f"**{item.get('product','-')}** · {item.get('original_name','-')}",
+                key=selk,
+            )
+        with h2:
+            parts = [f"<span class='{pc}'>{pl}</span>"]
+            if small:
+                parts.append("<span class='spill' style='background:#fef2f2;color:#dc2626;border:1px solid #fca5a5'>⚠ Ảnh nhỏ</span>")
+            st.markdown(
+                f"<div class='info-pills'>{''.join(parts)}</div>",
+                unsafe_allow_html=True,
+            )
+
+        # ── Body: Preview | Controls ──────────────────────────
+        lc, rc = st.columns([1.1, 1.65])
+
+        with lc:
+            # [FIX] Phân biệt: đã render → hiện ảnh thật; chưa → CSS live preview
+            if ds in ("adjusted", "rendered"):
+                # Ảnh ĐÃ RENDER — hiện trực tiếp từ output
+                if dp and Path(dp).exists():
+                    b64 = build_live_preview_b64(dp, max_size=480)
+                    st.markdown(_rendered_html(b64), unsafe_allow_html=True)
+                    out_sz = readable_file_size(Path(dp).stat().st_size)
+                    st.markdown(
+                        f"<div class='size-info output'>"
+                        f"📦 Output: {out_sz} · 🎯 {tw}×{th}</div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.warning("⚠ File output không tồn tại")
+            else:
+                # CHƯA RENDER — 2-layer CSS live preview
+                sp  = str(item.get("source_path", ""))
+                b64 = ""
+                if sp and Path(sp).exists():
+                    b64 = build_live_preview_b64(sp, max_size=360)
+                if not b64 and dp:
+                    b64 = build_live_preview_b64(dp, max_size=360)
+
+                st.markdown(
+                    _live_preview_html(
+                        b64=b64, tw=tw, th=th,
+                        scale=int(st.session_state[sk]),
+                        ox=int(st.session_state[xk]),
+                        oy=int(st.session_state[yk]),
+                    ),
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f"<div class='size-info'>🎯 Canvas {tw}×{th}</div>",
+                    unsafe_allow_html=True,
+                )
+
+            # Source info
+            sw = item.get("source_width", 0); sh = item.get("source_height", 0)
+            ssz = readable_file_size(item.get("source_size_bytes", 0))
+            st.markdown(
+                f"<div class='info-pills'>"
+                f"<span class='info-pill'>📐 <b>{sw}×{sh}</b></span>"
+                f"<span class='info-pill'>💾 <b>{ssz}</b></span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+        with rc:
+            # ── Sliders ───────────────────────────────────────
+            s1, s2, s3 = st.columns(3)
+            with s1:
+                st.slider("Scale %", 60, 200,
+                          int(st.session_state[sk]), 1, key=sk,
+                          on_change=_mark, args=(iid,))
+            with s2:
+                st.slider("X", -100, 100,
+                          int(st.session_state[xk]), 1, key=xk,
+                          on_change=_mark, args=(iid,))
+            with s3:
+                st.slider("Y", -100, 100,
+                          int(st.session_state[yk]), 1, key=yk,
+                          on_change=_mark, args=(iid,))
+
+            # Live value display
+            sv = int(st.session_state[sk])
+            xv = int(st.session_state[xk])
+            yv = int(st.session_state[yk])
+            st.markdown(
+                f"<div class='info-pills'>"
+                f"<span class='info-pill'>🔍 <b>{sv}%</b></span>"
+                f"<span class='info-pill'>↔ <b>{xv:+d}</b></span>"
+                f"<span class='info-pill'>↕ <b>{yv:+d}</b></span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            # ── Quick buttons ─────────────────────────────────
+            qb1, qb2, qb3 = st.columns(3)
+            with qb1:
+                if st.button("↺ Reset", key=f"rst_{iid}", use_container_width=True):
+                    d = int(item.get("default_scale_pct", cfg.get("default_scale_pct", 100)))
+                    st.session_state[sk]   = d
+                    st.session_state[xk]   = 0
+                    st.session_state[yk]   = 0
+                    st.session_state[selk] = True
+                    _del_thumb(iid); st.rerun()
+            with qb2:
+                if st.button("➖ 5%", key=f"min_{iid}", use_container_width=True):
+                    st.session_state[sk] = max(60, int(st.session_state[sk]) - 5)
+                    st.session_state[selk] = True; st.rerun()
+            with qb3:
+                if st.button("➕ 5%", key=f"pls_{iid}", use_container_width=True):
+                    st.session_state[sk] = min(200, int(st.session_state[sk]) + 5)
+                    st.session_state[selk] = True; st.rerun()
+
+            # ── Download single ───────────────────────────────
+            st.markdown("<hr style='margin:8px 0;border-color:#f1f5f9'>", unsafe_allow_html=True)
+            if dp and Path(dp).exists():
+                try:
+                    fb  = Path(dp).read_bytes()
+                    bt  = "primary" if ds == "adjusted" else "secondary"
+                    lbl = "📥 Tải ảnh đã chỉnh" if ds == "adjusted" else "📥 Tải ảnh"
+                    st.download_button(
+                        lbl, fb, Path(dp).name, "image/jpeg",
+                        use_container_width=True, type=bt, key=f"dl_{iid}",
+                    )
+                except Exception:
+                    st.caption("⚠ Không đọc được file")
+            else:
+                st.caption("— Chưa có file output —")
+
+
+# ══════════════════════════════════════════════════════════════
+# MAIN ENTRY
+# ══════════════════════════════════════════════════════════════
 def render_adjustment_studio():
-    """
-    Studio Scale v10.0 — Production-ready.
-
-    Signature không đổi để tương thích với app.py cũ.
-    """
-    # [FIX BUG 2] CSS inject trong function, không ở module level
-    _inject_studio_css()
-
+    _inject_css()
     st.markdown("<div class='studio-wrap'>", unsafe_allow_html=True)
 
     st.markdown(
         "<div class='hero-card'>"
-        "<h2 style='font-size:1.2rem!important'>🎚 Studio Scale v10.0</h2>"
-        "<p style='font-size:.9rem!important;line-height:1.6'>"
-        "Điều chỉnh scale + vị trí từng ảnh. Ảnh <b>chưa render</b> hiển thị "
-        "Live Preview (CSS). Sau khi bấm <b>Render</b>, Studio sẽ hiển thị "
-        "<b>ảnh output thật sự</b> từ đĩa."
-        "</p></div>",
+        "<h2>🎚 Studio Scale v10.0</h2>"
+        "<p>Live Preview cập nhật realtime theo slider. Canvas preview <b>động theo output size thật</b>. "
+        "Ảnh đã render hiển thị output thực từ đĩa.</p>"
+        "</div>",
         unsafe_allow_html=True,
     )
 
-    # ── Lấy state từ session ─────────────────────────────────────
-    manifest  = st.session_state.get("last_batch_manifest", [])
-    cfg       = st.session_state.get("last_batch_cfg", {})
-    meta      = st.session_state.get("last_batch_meta", {})
+    manifest = st.session_state.get("last_batch_manifest", [])
+    cfg      = st.session_state.get("last_batch_cfg",      {})
+    meta     = st.session_state.get("last_batch_meta",     {})
 
     if not manifest:
-        st.info(
-            "⚠️ Chưa có batch. Chạy tab **Web / Drive / Local ZIP** trước."
-        )
+        st.info("⚠️ Chưa có batch. Chạy tab **Web / Drive / Local ZIP** trước.")
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
@@ -743,320 +567,228 @@ def render_adjustment_studio():
 
     root = Path(meta["root"]) if meta.get("root") else None
     if root and not root.exists():
-        st.error(
-            "❌ Workspace batch đã bị xóa (Streamlit Cloud reset container). "
-            "Vui lòng chạy lại batch."
-        )
+        st.error("❌ Workspace batch đã bị xóa (container reset). Vui lòng chạy lại.")
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    final_dir    = Path(meta["final_dir"]) if meta.get("final_dir") else (
-        root / "FINAL" if root else None
+    final_dir = (
+        Path(meta["final_dir"]) if meta.get("final_dir") else
+        (root / "FINAL" if root else None)
     )
-    adjusted_dir = Path(
+    adj_dir   = Path(
         st.session_state.get("_adjusted_root", str(root / "ADJUSTED"))
     ) if root else None
-    sizes_cfg    = cfg.get("sizes", [])
+    sizes     = cfg.get("sizes", [])
 
-    # Canvas size
-    main_tw, main_th = 1020, 680
-    if sizes_cfg:
+    # Canvas target size
+    tw, th = 1020, 680
+    if sizes:
         try:
-            tw, th, _ = sizes_cfg[0]
-            if tw and th:
-                main_tw, main_th = int(tw), int(th)
+            w, h, _ = sizes[0]
+            if w and h: tw, th = int(w), int(h)
         except Exception:
             pass
 
-    # ── Init state toàn bộ manifest (một lần) ───────────────────
-    init_key = f"_studio_init_{meta.get('batch_id', 'x')}"
+    # Init state cho toàn bộ manifest một lần
+    init_key = f"_sinit_{meta.get('batch_id','x')}"
     if not st.session_state.get(init_key):
-        for item in manifest:
-            _ensure_item_state(item, cfg)
+        for it in manifest: _init_item(it, cfg)
         st.session_state[init_key] = True
 
-    total     = len(manifest)
-    sel_count = sum(1 for it in manifest if st.session_state.get(f"sel_{it['id']}", False))
-    sml_count = sum(1 for it in manifest if _is_small_image(it))
+    total   = len(manifest)
+    sel_n   = sum(1 for it in manifest if st.session_state.get(f"sel_{it['id']}", False))
+    sml_n   = sum(1 for it in manifest if _is_small(it))
 
+    # Canvas size info pill
     st.markdown(
-        f"<div class='guide-box'>"
-        f"<b>Batch:</b> {meta.get('batch_id', '-')[:20]} · "
-        f"<b>Tổng ảnh:</b> {total} · "
-        f"<b>Đang chọn:</b> <span style='color:#fbbf24'>{sel_count}</span> · "
-        f"<b>Ảnh nhỏ:</b> <span style='color:#f87171'>{sml_count}</span>"
+        f"<div class='info-pills'>"
+        f"<span class='info-pill'>📦 {meta.get('batch_id','-')[:20]}</span>"
+        f"<span class='info-pill'>📷 <b>{total}</b> ảnh</span>"
+        f"<span class='info-pill' style='color:#7c3aed'>✏️ <b>{sel_n}</b> đang chọn</span>"
+        f"<span class='info-pill' style='color:#dc2626'>⚠ <b>{sml_n}</b> ảnh nhỏ</span>"
+        f"<span class='info-pill' style='background:#f5f3ff;border-color:#ddd6fe'>"
+        f"🎯 Canvas <b>{tw}×{th}</b></span>"
         f"</div>",
         unsafe_allow_html=True,
     )
 
-    # ══════ BỘ LỌC ══════════════════════════════════════════════
-    st.markdown(
-        '<div class="sec-title">🔍 Bộ lọc & Phân trang</div>',
-        unsafe_allow_html=True,
-    )
-    product_names = sorted({it.get("product", "") for it in manifest if it.get("product")})
+    # ── Filters ───────────────────────────────────────────────
+    st.markdown('<div class="sec-title">🔍 Bộ lọc</div>', unsafe_allow_html=True)
+    pnames = sorted({it.get("product","") for it in manifest if it.get("product")})
+    fc = st.columns([1.6, 1.1, 1.4, 0.9])
+    with fc[0]: kw = st.text_input("Tìm nhanh", placeholder="Tên, màu...", key="adj_kw", label_visibility="collapsed")
+    with fc[1]: pf = st.selectbox("Sản phẩm", ["Tất cả",*pnames], key="adj_pf", label_visibility="collapsed")
+    with fc[2]: sf = st.selectbox("Trạng thái", ["Tất cả","Chỉ ảnh đã chọn sửa","Chỉ ảnh chưa chọn","Chỉ ảnh nhỏ (bị giãn)"], key="adj_sf", label_visibility="collapsed")
+    with fc[3]: pp = st.selectbox("/ trang", [6,10,16,24], index=1, key="adj_pp", label_visibility="collapsed")
 
-    fc1, fc2, fc3, fc4 = st.columns([1.5, 1.1, 1.3, 0.9])
-    with fc1:
-        keyword = st.text_input(
-            "Tìm nhanh", placeholder="Tên ảnh, màu...", key="adj_kw",
-            label_visibility="collapsed",
-        )
-    with fc2:
-        product_filter = st.selectbox(
-            "Sản phẩm", ["Tất cả", *product_names], key="adj_pf",
-            label_visibility="collapsed",
-        )
-    with fc3:
-        status_filter = st.selectbox(
-            "Trạng thái",
-            ["Tất cả", "Chỉ ảnh đã chọn sửa", "Chỉ ảnh chưa chọn", "Chỉ ảnh nhỏ (bị giãn)"],
-            key="adj_sf",
-            label_visibility="collapsed",
-        )
-    with fc4:
-        per_page = st.selectbox(
-            "Trang", [6, 10, 16, 24], index=1, key="adj_pp",
-            label_visibility="collapsed",
-        )
-
-    filtered = _filter_items(manifest, keyword, product_filter, status_filter)
-
+    filtered = _filter(manifest, kw, pf, sf)
     if not filtered:
         st.warning("Không có ảnh phù hợp bộ lọc.")
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    # ══════ THAO TÁC HÀNG LOẠT ══════════════════════════════════
+    # ── Bulk ops ──────────────────────────────────────────────
     st.markdown('<div class="sec-title">🧩 Thao tác hàng loạt</div>', unsafe_allow_html=True)
     with st.container(border=True):
-        ba1, ba2, ba3, ba4 = st.columns(4)
-        with ba1:
-            if st.button("☑️ Chọn tất cả bộ lọc", use_container_width=True, key="adj_sel_all"):
-                for it in filtered:
-                    st.session_state[f"sel_{it['id']}"] = True
+        ba = st.columns(4)
+        with ba[0]:
+            if st.button("☑️ Chọn tất cả", use_container_width=True, key="bsa"):
+                for it in filtered: st.session_state[f"sel_{it['id']}"] = True
                 st.rerun()
-        with ba2:
-            if st.button("⬜ Bỏ chọn tất cả", use_container_width=True, key="adj_unsel_all"):
-                for it in filtered:
-                    st.session_state[f"sel_{it['id']}"] = False
+        with ba[1]:
+            if st.button("⬜ Bỏ chọn tất cả", use_container_width=True, key="bua"):
+                for it in filtered: st.session_state[f"sel_{it['id']}"] = False
                 st.rerun()
-        with ba3:
-            if st.button("⚠️ Chọn ảnh nhỏ", use_container_width=True, key="adj_sel_small"):
+        with ba[2]:
+            if st.button("⚠️ Chọn ảnh nhỏ", use_container_width=True, key="bss"):
                 for it in manifest:
-                    if _is_small_image(it):
-                        st.session_state[f"sel_{it['id']}"] = True
+                    if _is_small(it): st.session_state[f"sel_{it['id']}"] = True
                 st.rerun()
-        with ba4:
-            if st.button("🧹 Xóa toàn bộ", use_container_width=True, key="adj_clear"):
-                for it in manifest:
-                    st.session_state[f"sel_{it['id']}"] = False
+        with ba[3]:
+            if st.button("🧹 Xóa tất cả", use_container_width=True, key="bca"):
+                for it in manifest: st.session_state[f"sel_{it['id']}"] = False
                 st.rerun()
 
-        bs1, bs2, bs3 = st.columns(3)
-        with bs1:
-            bulk_scale = st.slider(
-                "Scale (%)", 60, 200,
-                int(cfg.get("default_scale_pct", 100)),
-                key="bulk_sc",
-            )
-        with bs2:
-            bulk_x = st.slider("X", -100, 100, 0, key="bulk_x")
-        with bs3:
-            bulk_y = st.slider("Y", -100, 100, 0, key="bulk_y")
+        bs = st.columns(3)
+        with bs[0]: bsc = st.slider("Scale %", 60, 200, int(cfg.get("default_scale_pct",100)), key="bsc")
+        with bs[1]: bxc = st.slider("X", -100, 100, 0, key="bxc")
+        with bs[2]: byc = st.slider("Y", -100, 100, 0, key="byc")
 
-        bapp1, bapp2 = st.columns(2)
-        with bapp1:
-            if st.button(
-                "⚡ Áp dụng trang hiện tại",
-                use_container_width=True, key="adj_bulk_page",
-            ):
-                # Áp dụng cho page items — lấy sau khi tính pagination
-                page_key = "adj_page_num"
-                pg       = int(st.session_state.get(page_key, 1))
-                pg_start = (pg - 1) * per_page
-                pg_end   = pg_start + per_page
-                for it in filtered[pg_start:pg_end]:
+        ab1, ab2 = st.columns(2)
+        with ab1:
+            if st.button("⚡ Áp dụng trang hiện tại", use_container_width=True, key="bap"):
+                pg  = int(st.session_state.get("adj_pg", 1))
+                s   = (pg-1)*pp; e = s+pp
+                for it in filtered[s:e]:
                     iid = it["id"]
-                    st.session_state[f"adj_scale_{iid}"] = int(bulk_scale)
-                    st.session_state[f"adj_x_{iid}"]     = int(bulk_x)
-                    st.session_state[f"adj_y_{iid}"]     = int(bulk_y)
+                    st.session_state[f"adj_scale_{iid}"] = int(bsc)
+                    st.session_state[f"adj_x_{iid}"]     = int(bxc)
+                    st.session_state[f"adj_y_{iid}"]     = int(byc)
                     st.session_state[f"sel_{iid}"]       = True
                 st.rerun()
-        with bapp2:
-            if st.button(
-                "⚡⚡ Áp dụng TOÀN BỘ bộ lọc",
-                use_container_width=True, key="adj_bulk_all",
-            ):
+        with ab2:
+            if st.button("⚡⚡ Áp dụng tất cả bộ lọc", use_container_width=True, key="baa"):
                 for it in filtered:
                     iid = it["id"]
-                    st.session_state[f"adj_scale_{iid}"] = int(bulk_scale)
-                    st.session_state[f"adj_x_{iid}"]     = int(bulk_x)
-                    st.session_state[f"adj_y_{iid}"]     = int(bulk_y)
+                    st.session_state[f"adj_scale_{iid}"] = int(bsc)
+                    st.session_state[f"adj_x_{iid}"]     = int(bxc)
+                    st.session_state[f"adj_y_{iid}"]     = int(byc)
                     st.session_state[f"sel_{iid}"]       = True
                 st.rerun()
 
-    # ══════ PAGINATION + ITEM LIST ═══════════════════════════════
+    # ── Item list với pagination ──────────────────────────────
     st.markdown(
-        f'<div class="sec-title">🖼 Ảnh ({len(filtered)} phù hợp) — '
-        f'Canvas {main_tw}×{main_th}</div>',
+        f'<div class="sec-title">🖼 Ảnh ({len(filtered)} phù hợp) '
+        f'— Canvas <b>{tw}×{th}</b></div>',
         unsafe_allow_html=True,
     )
+    _, s, e = _paginate(len(filtered), pp, "adj_pg")
+    page_items = filtered[s:e]
 
-    _, start, end = _render_pagination(len(filtered), per_page, "adj_page_num")
-    page_items    = filtered[start:end]
-
+    # [PERF] Chỉ build thumbnail cho items trên trang hiện tại
     for item in page_items:
-        _render_item_card(
-            item=item, cfg=cfg,
-            final_dir=final_dir, adjusted_dir=adjusted_dir,
-            target_w=main_tw, target_h=main_th,
-            sizes_cfg=sizes_cfg,
-        )
+        _card(item, cfg, final_dir, adj_dir, tw, th, sizes)
 
-    # ══════ XUẤT FILE ═══════════════════════════════════════════
-    selected_items = [it for it in manifest if st.session_state.get(f"sel_{it['id']}", False)]
+    # ── Export panel ──────────────────────────────────────────
+    sel_items = [it for it in manifest if st.session_state.get(f"sel_{it['id']}", False)]
 
     st.markdown("""
         <div class="export-panel">
-            <h2 style="margin-top:0;color:#fff;font-size:1.3rem">
-                🚀 BƯỚC CUỐI: XUẤT FILE & TẢI VỀ
-            </h2>
-            <p style="color:#cbd5e1;font-size:.9rem">
-                <b>Bước 1</b>: Render ảnh đã chọn (áp dụng scale/vị trí) →
+            <h2>🚀 Xuất file & tải về</h2>
+            <p style="color:#64748b;font-size:.9rem">
+                <b>Bước 1</b>: Render ảnh đã chọn →
                 <b>Bước 2</b>: Đóng gói ZIP →
                 <b>Bước 3</b>: Tải về máy.
             </p>
         </div>
     """, unsafe_allow_html=True)
 
-    col_r, col_z = st.columns(2)
-
-    with col_r:
-        st.markdown(
-            "<h4 style='color:#a78bfa;margin-bottom:4px'>▶ BƯỚC 1: RENDER</h4>",
-            unsafe_allow_html=True,
-        )
+    ec1, ec2 = st.columns(2)
+    with ec1:
+        st.markdown("<h4 style='color:#7c3aed;margin-bottom:4px'>▶ Bước 1: Render</h4>", unsafe_allow_html=True)
         do_render = st.button(
-            f"🎨 Render {len(selected_items)} ảnh đã chọn",
+            f"🎨 Render {len(sel_items)} ảnh đã chọn",
             type="primary", use_container_width=True,
-            key="adj_render",
-            disabled=(len(selected_items) == 0),
+            key="adj_render", disabled=(len(sel_items) == 0),
         )
-
-    with col_z:
-        st.markdown(
-            "<h4 style='color:#a78bfa;margin-bottom:4px'>▶ BƯỚC 2: TẠO ZIP</h4>",
-            unsafe_allow_html=True,
-        )
+    with ec2:
+        st.markdown("<h4 style='color:#7c3aed;margin-bottom:4px'>▶ Bước 2: Tạo ZIP</h4>", unsafe_allow_html=True)
         do_export = st.button(
-            "📦 ZIP gộp (ảnh đã chỉnh + ảnh gốc)",
-            type="primary", use_container_width=True,
-            key="adj_export",
+            "📦 ZIP gộp (ảnh đã chỉnh + gốc)",
+            type="primary", use_container_width=True, key="adj_export",
         )
 
-    # ── Xử lý render ─────────────────────────────────────────────
+    # ── Render logic ──────────────────────────────────────────
     if do_render:
         if not root:
-            st.error("❌ Workspace batch không tồn tại.")
+            st.error("❌ Workspace không tồn tại.")
         else:
-            adjusted_root = root / "ADJUSTED"
-            start_time    = time.time()
-
-            success_n, errors = _run_render(
-                selected_items, adjusted_root,
-                final_dir, sizes_cfg, cfg,
-            )
-            duration = time.time() - start_time
-
-            st.session_state["_adjusted_root"]    = str(adjusted_root)
-            st.session_state["_adjust_render_done"] = True
-
-            if success_n > 0:
-                st.success(
-                    f"✅ Render xong **{success_n}/{len(selected_items)}** ảnh "
-                    f"trong {duration:.1f}s"
-                )
+            adj_root   = root / "ADJUSTED"
+            t0         = time.time()
+            ok_n, errs = _run_render(sel_items, adj_root, final_dir, sizes, cfg)
+            dt         = time.time() - t0
+            st.session_state["_adjusted_root"]     = str(adj_root)
+            st.session_state["_adjust_render_done"]= True
+            if ok_n > 0:
+                st.success(f"✅ Render **{ok_n}/{len(sel_items)}** ảnh trong {dt:.1f}s")
                 add_to_history(
-                    "Adjust",
-                    f"Studio · {success_n} ảnh",
-                    success_n,
-                    " + ".join([get_size_label(w, h, m) for w, h, m in sizes_cfg]),
-                    duration,
+                    "Adjust", f"Studio · {ok_n} ảnh", ok_n,
+                    " + ".join(get_size_label(w,h,m) for w,h,m in sizes), dt,
                 )
-
-            if errors:
-                with st.expander(f"⚠️ {len(errors)} ảnh bị lỗi — Xem chi tiết"):
-                    for e in errors:
-                        st.caption(f"• {e}")
-
+            if errs:
+                with st.expander(f"⚠️ {len(errs)} lỗi"):
+                    for e in errs: st.caption(f"• {e}")
             st.rerun()
 
-    # ── Xử lý export ZIP ─────────────────────────────────────────
+    # ── Export ZIP logic ──────────────────────────────────────
     if do_export:
         if not root:
-            st.error("❌ Workspace batch không tồn tại.")
+            st.error("❌ Workspace không tồn tại.")
         elif not final_dir or not final_dir.exists():
             st.error("❌ Thư mục FINAL không tồn tại.")
         else:
-            adj_p = Path(
-                st.session_state.get("_adjusted_root", str(root / "ADJUSTED"))
-            )
-            uid   = int(time.time())
-
-            with st.spinner("Đang gộp ảnh đã chỉnh + ảnh gốc..."):
-                merged_dir = root / f"MERGED_{uid}"
-                merged_dir.mkdir(parents=True, exist_ok=True)
-                stats = merge_final_with_adjusted(final_dir, adj_p, merged_dir)
-
-                zip_path = root / f"FullExport_{meta.get('batch_id','batch')}_{uid}.zip"
-                make_zip(merged_dir, zip_path, compresslevel=int(cfg.get("zip_compression", 6)))
-
-            if zip_path.exists() and zip_path.stat().st_size > 0:
-                st.session_state["adjust_zip_path"] = str(zip_path)
+            ap  = Path(st.session_state.get("_adjusted_root", str(root/"ADJUSTED")))
+            uid = int(time.time())
+            with st.spinner("Đang gộp ảnh..."):
+                md  = root / f"MERGED_{uid}"; md.mkdir(parents=True, exist_ok=True)
+                stats = merge_final_with_adjusted(final_dir, ap, md)
+                zp    = root / f"FullExport_{meta.get('batch_id','b')}_{uid}.zip"
+                make_zip(md, zp, compresslevel=int(cfg.get("zip_compression", 6)))
+            if zp.exists() and zp.stat().st_size > 0:
+                st.session_state["adjust_zip_path"] = str(zp)
                 st.success(
-                    f"📦 ZIP sẵn sàng · Ghi đè: **{stats['overridden']}** · "
-                    f"Giữ nguyên: **{stats['kept']}** ảnh"
+                    f"📦 ZIP sẵn sàng · Ghi đè **{stats['overridden']}** · "
+                    f"Giữ nguyên **{stats['kept']}**"
                 )
                 st.rerun()
             else:
                 st.error("❌ Tạo ZIP thất bại.")
 
-    # ══════ TẢI ZIP ══════════════════════════════════════════════
+    # ── Download ZIP ──────────────────────────────────────────
     st.markdown(
-        "<h4 style='color:#a78bfa;margin-top:20px;margin-bottom:4px'>"
-        "▶ BƯỚC 3: TẢI FILE ZIP</h4>",
+        "<h4 style='color:#7c3aed;margin-top:16px;margin-bottom:4px'>"
+        "▶ Bước 3: Tải ZIP</h4>",
         unsafe_allow_html=True,
     )
-
     dz1, dz2 = st.columns(2)
-
     with dz1:
-        # ZIP gốc (FINAL)
-        zip_orig = meta.get("zip_path", "")
-        if not zip_orig or not Path(zip_orig).exists():
-            # Tạo fallback ZIP từ FINAL
+        zorig = meta.get("zip_path","")
+        if not zorig or not Path(zorig).exists():
             if root and final_dir and final_dir.exists():
                 try:
-                    fb_zip = root / f"OrigExport_{meta.get('batch_id','b')}.zip"
-                    if not fb_zip.exists():
-                        make_zip(final_dir, fb_zip, compresslevel=6)
-                    if fb_zip.exists():
-                        zip_orig = str(fb_zip)
+                    fb = root / f"OrigExport_{meta.get('batch_id','b')}.zip"
+                    if not fb.exists():
+                        make_zip(final_dir, fb, compresslevel=6)
+                    if fb.exists(): zorig = str(fb)
                 except Exception:
                     pass
-
-        h = open_zip_for_download(zip_orig)
+        h = open_zip_for_download(zorig)
         if h:
             try:
-                sz = readable_file_size(Path(zip_orig).stat().st_size)
                 st.download_button(
-                    f"⬇️ ZIP Gốc ({sz})",
-                    data=h,
-                    file_name=Path(zip_orig).name,
-                    mime="application/zip",
-                    use_container_width=True,
-                    key="dl_orig_zip",
+                    f"⬇️ ZIP Gốc ({readable_file_size(Path(zorig).stat().st_size)})",
+                    h, Path(zorig).name, "application/zip",
+                    use_container_width=True, key="dl_orig",
                 )
             finally:
                 h.close()
@@ -1064,24 +796,18 @@ def render_adjustment_studio():
             st.caption("ZIP gốc chưa có.")
 
     with dz2:
-        # ZIP gộp (FINAL + ADJUSTED)
-        zip_merged = st.session_state.get("adjust_zip_path", "")
-        hm = open_zip_for_download(zip_merged)
+        zm = st.session_state.get("adjust_zip_path","")
+        hm = open_zip_for_download(zm)
         if hm:
             try:
-                sz = readable_file_size(Path(zip_merged).stat().st_size)
                 st.download_button(
-                    f"⬇️ ZIP Gộp — Đã chỉnh ({sz})",
-                    data=hm,
-                    file_name=Path(zip_merged).name,
-                    mime="application/zip",
-                    type="primary",
-                    use_container_width=True,
-                    key="dl_merged_zip",
+                    f"⬇️ ZIP Gộp — Đã chỉnh ({readable_file_size(Path(zm).stat().st_size)})",
+                    hm, Path(zm).name, "application/zip",
+                    type="primary", use_container_width=True, key="dl_merged",
                 )
             finally:
                 hm.close()
         else:
-            st.info("💡 Bấm **[Bước 2: Tạo ZIP]** để tạo file gộp.")
+            st.info("💡 Bấm **Bước 2** để tạo file ZIP gộp.")
 
     st.markdown("</div>", unsafe_allow_html=True)
