@@ -68,7 +68,7 @@ st.set_page_config(
 
 
 # ══════════════════════════════════════════════════════════════
-# CSS — v10.0 MODERN WHITE PROFESSIONAL
+# CSS — v10.0 MODERN WHITE PROFESSIONAL + NATIVE OVERRIDES
 # ══════════════════════════════════════════════════════════════
 
 st.markdown("""
@@ -219,7 +219,7 @@ section[data-testid="stSidebar"] .stButton button{
     margin:0;font-size:.78rem;color:var(--tx-4);
     display:flex;align-items:center;gap:6px;flex-wrap:wrap;
 }
-/* Feature badges like screenshot */
+
 .hdr-badge{
     display:inline-flex;align-items:center;
     font-size:.68rem;font-weight:700;padding:2px 9px;
@@ -261,7 +261,7 @@ div[data-testid="stVerticalBlockBorderWrapper"]:hover{
     box-shadow:var(--sh-sm)!important;
 }
 
-/* ─── SECTION TITLES — match screenshot style ── */
+/* ─── SECTION TITLES ── */
 .sec-title{
     display:inline-flex;align-items:center;gap:8px;
     font-size:.72rem!important;font-weight:700!important;
@@ -269,7 +269,6 @@ div[data-testid="stVerticalBlockBorderWrapper"]:hover{
     text-transform:uppercase;letter-spacing:1px;
     margin:20px 0 10px!important;padding:0;
 }
-/* Horizontal rule after (Figma/Linear style) */
 .sec-title-row{
     display:flex;align-items:center;gap:10px;
     margin:20px 0 10px;
@@ -322,39 +321,6 @@ div[data-testid="stVerticalBlockBorderWrapper"]:hover{
 /* ─── PREVIEW META ── */
 .preview-meta{text-align:center;font-size:.75rem;color:var(--tx-4);margin-top:5px;}
 
-/* ─── BUTTONS — Rich purple like screenshot ── */
-.stButton>button,.stDownloadButton>button{
-    background:linear-gradient(160deg,var(--p) 0%,#7b52f5 100%)!important;
-    color:#fff!important;
-    border-radius:var(--r-sm)!important;
-    border:none!important;
-    font-weight:700!important;
-    font-size:13.5px!important;
-    min-height:38px!important;
-    padding:7px 18px!important;
-    box-shadow:0 2px 8px rgba(98,56,229,.32),inset 0 1px 0 rgba(255,255,255,.12)!important;
-    transition:all .14s cubic-bezier(.4,.7,.2,1)!important;
-    letter-spacing:.1px;
-}
-.stButton>button:hover,.stDownloadButton>button:hover{
-    background:linear-gradient(160deg,var(--p-dark) 0%,#6640e8 100%)!important;
-    box-shadow:0 5px 16px rgba(98,56,229,.42)!important;
-    transform:translateY(-1px)!important;
-}
-.stButton>button:active{transform:translateY(0)!important;box-shadow:0 1px 4px rgba(98,56,229,.25)!important;}
-.stButton>button:focus-visible{outline:2px solid var(--p)!important;outline-offset:2px!important;}
-button[kind="secondary"]{
-    background:var(--surface)!important;color:var(--tx-2)!important;
-    border:1.5px solid var(--border-2)!important;
-    box-shadow:var(--sh-xs)!important;font-weight:500!important;
-}
-button[kind="secondary"]:hover{background:var(--bg)!important;border-color:var(--tx-4)!important;}
-.stButton>button:disabled,.stDownloadButton>button:disabled{
-    background:var(--bg)!important;color:var(--tx-5)!important;
-    border:1.5px solid var(--border)!important;
-    box-shadow:none!important;cursor:not-allowed!important;transform:none!important;
-}
-
 /* ─── INPUTS ── */
 .stTextInput input,
 .stTextArea textarea,
@@ -393,7 +359,7 @@ button[kind="secondary"]:hover{background:var(--bg)!important;border-color:var(-
     color:var(--tx-2)!important;letter-spacing:.05px;
 }
 
-/* ─── SLIDERS — rich purple ── */
+/* ─── SLIDERS ── */
 .stSlider [data-baseweb="slider"]>div>div{
     background:linear-gradient(90deg,var(--p),#8b6ff4)!important;
     height:4px!important;border-radius:2px!important;
@@ -546,7 +512,7 @@ hr{border:none!important;border-top:1.5px solid var(--border)!important;margin:1
 .user-chip b{color:var(--tx-1)!important;font-size:.95rem!important;font-weight:800!important;}
 .user-chip span{color:var(--p-text)!important;font-size:.74rem!important;font-weight:600!important;}
 
-/* ─── SIDEBAR LOGO — Modern grid icon matching screenshot ── */
+/* ─── SIDEBAR LOGO ── */
 .sb-logo-wrap{text-align:center;padding:10px 0 6px;}
 .sb-logo-icon{
     width:44px;height:44px;margin:0 auto 10px;
@@ -585,7 +551,7 @@ hr{border:none!important;border-top:1.5px solid var(--border)!important;margin:1
 /* ─── CTRL ROW ── */
 .ctrl-row{background:var(--bg);border-radius:var(--r-sm);padding:8px;margin:8px 0;border:1.5px solid var(--border);}
 
-/* ─── APP NAV TABS (radio-as-tabs) — match sidebar nav style ── */
+/* ─── APP NAV TABS (radio-as-tabs) ── */
 div[data-testid="stRadio"][aria-label="_app_tab_nav"]>div[role="radiogroup"],
 .app-tab-nav div[role="radiogroup"]{
     gap:2px!important;background:var(--bg)!important;
@@ -603,7 +569,7 @@ div[data-testid="stRadio"][aria-label="_app_tab_nav"]>div[role="radiogroup"],
 }
 .app-tab-nav label:hover{background:var(--surface)!important;color:var(--tx-2)!important;}
 .app-tab-nav label>div:first-child{display:none!important;}
-/* Active tab — matches screenshot purple pill */
+/* Active tab */
 .app-tab-nav label:has(input:checked){
     background:var(--p-10)!important;
     color:var(--p)!important;
@@ -736,6 +702,45 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(input[type="checkbox"]:check
     .live-frame{max-width:100%;}
     .live-overlay{font-size:.68rem!important;padding:4px 8px;}
 }
+
+
+/* =====================================================================
+   STREAMLIT NATIVE OVERRIDES (FIX LỖI STREAMLIT KHÔNG NHẬN GIAO DIỆN MỚI)
+   ===================================================================== */
+[data-testid="stAppViewContainer"] { background-color: var(--bg) !important; }
+[data-testid="stSidebar"] { background-color: var(--surface) !important; }
+
+button[data-testid="baseButton-primary"], 
+button[data-testid="baseButton-secondary"], 
+div[data-testid="stButton"] > button {
+    background: linear-gradient(135deg, var(--p) 0%, #2563eb 100%) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 6px -1px rgba(37,99,235, 0.3) !important;
+}
+
+button[data-testid="baseButton-primary"]:hover, 
+button[data-testid="baseButton-secondary"]:hover, 
+div[data-testid="stButton"] > button:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 12px rgba(37,99,235, 0.4) !important;
+}
+
+[data-testid="stTextInput"] input, 
+[data-testid="stNumberInput"] input, 
+[data-testid="stSelectbox"] > div > div {
+    border-radius: 8px !important;
+    border: 1px solid var(--border-2) !important;
+    background-color: var(--surface) !important;
+}
+
+[data-testid="stTextInput"] input:focus, 
+[data-testid="stNumberInput"] input:focus {
+    border-color: var(--p) !important;
+    box-shadow: 0 0 0 2px rgba(98,56,229,0.15) !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
