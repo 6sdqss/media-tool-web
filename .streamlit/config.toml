@@ -11,9 +11,9 @@ fastReruns = false
 gatherUsageStats = false
 
 [theme]
-base = "dark"
-primaryColor = "#8b5cf6"
-backgroundColor = "#0b0b12"
-secondaryBackgroundColor = "#15151f"
-textColor = "#e2e8f0"
-font = "sans serif"
+base="light"
+primaryColor="#3b82f6"
+backgroundColor="#f4f6f9"
+secondaryBackgroundColor="#ffffff"
+textColor="#1e293b"
+font="sans serif"
