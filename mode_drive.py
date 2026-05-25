@@ -1,25 +1,24 @@
 """
-mode_drive_patch.py — Patch Minimal Invasive cho mode_drive.py v9.3 → v10.1
+mode_drive.py — Tab Google Drive v10.2
 ════════════════════════════════════════════════════════════════════════════════
-CÁCH ÁP DỤNG:
-  Đây là file mode_drive.py ĐÃ PATCH HOÀN CHỈNH — copy đè lên file cũ.
-  Mọi thay đổi được ghi chú rõ bằng # [PATCH vX.Y]: ...
+CHANGELOG v10.2 (nâng từ v10.1 patch):
 
-THAY ĐỔI SO VỚI v9.3:
-  [P1] api_download_folder_images → truyền progress_cb để log tiến độ realtime
-  [P2] download_direct_file → bây giờ verify file sau tải (magic bytes check)
-  [P3] Delay giữa links: 0.5s → 3s để tránh Google rate limit (429)
-  [P4] zip_path.read_bytes() → chỉ load vào RAM nếu file < 50MB
-  [P5] Progress bar throttle: chỉ update sau mỗi 10% thay vì mỗi link
-  [P6] Exception handling per-link cải thiện, log rõ nguyên nhân
-  [P7] gdown folder fallback thêm retry + delay 5s
+[UI]   Thêm hero-card header tại đầu run_mode_drive().
+[PERF] Log Box: log_lines[-20:] → log_lines[-30:] — giữ 30 dòng gần nhất.
+[COMPAT] Đồng bộ version với toàn bộ hệ thống v10.2.
+
+GIỮ NGUYÊN TỪ v10.1 patch:
+  [P1] api_download_folder_images → progress_cb log tiến độ realtime.
+  [P2] download_direct_file → verify magic bytes sau tải.
+  [P3] Delay giữa links: 3s để tránh Google rate limit (429).
+  [P4] zip > 50MB không load RAM — đọc từ đĩa.
+  [P5] Progress bar throttle: update sau mỗi 10%.
+  [P6] Exception handling per-link, log rõ nguyên nhân.
+  [P7] gdown folder retry + delay 5s.
 
 KHÔNG thay đổi:
-  - Tên hàm, signature
-  - Import list
-  - UI layout, widget keys
-  - Logic Studio redirect
-  - Upload Drive section
+  - Tên hàm, signature, import list, UI layout, widget keys.
+  - Logic Studio redirect, upload Drive section.
 """
 from __future__ import annotations
 
@@ -73,6 +72,15 @@ def run_mode_drive(cfg: dict, drive_service):
     export_format = cfg["export_format"]
     template = cfg["template"]
     rename_enabled = cfg["rename"]
+
+    st.markdown(
+        "<div class='hero-card'>"
+        "<h2>🌐 Drive v10.2</h2>"
+        "<p>Tải ảnh từ Google Drive (folder hoặc file đơn) → Resize → ZIP. "
+        "Hỗ trợ upload ngược lên Drive đích sau khi xử lý.</p>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
     st.markdown(
         "<div class='guide-box'>"
@@ -162,7 +170,8 @@ def run_mode_drive(cfg: dict, drive_service):
         def _log_ui(msg: str):
             """Thread-safe log vào UI placeholder."""
             log_lines.append(msg)
-            visible = log_lines[-20:]  # Hiển thị 20 dòng gần nhất
+            # [v10.2 FIX] Giới hạn 30 dòng thay vì 20 — đủ context mà không nặng DOM
+            visible = log_lines[-30:]
             log_placeholder.markdown(
                 "<div class='log-box'>" + "<br>".join(visible) + "</div>",
                 unsafe_allow_html=True,
