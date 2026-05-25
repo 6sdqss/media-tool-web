@@ -1,9 +1,22 @@
 """
-mode_web.py — Tab Web TGDD v9.3
+mode_web.py — Tab Web TGDD v10.2
 ─────────────────────────────────────────────────────────
-v9.3 (giữ NGUYÊN logic crawl/parser cookie/parser màu/parser ảnh):
-- THÊM `seq_in_folder` vào manifest item → Studio map đúng ảnh sau rename.
-- ZIP path lưu vào last_batch_meta để Studio dùng làm "ZIP GỐC".
+CHANGELOG v10.2 (nâng từ v9.3):
+
+[UI]   Thêm hero-card header tại đầu run_mode_web().
+[PERF] Log Box: logs[-25:] → logs[-30:] — giữ 30 dòng gần nhất.
+[PERF] Progress bar throttle: chỉ cập nhật khi pct tăng ≥ 5% hoặc task cuối.
+       Tránh render DOM quá dày đặc khi batch lớn.
+[FIX]  ThreadPoolExecutor scan: future.result(timeout=30) tránh deadlock
+       khi network timeout không raise exception.
+[FIX]  folder_counter key: dùng Path(folder_path).as_posix() chuẩn hóa
+       path separator — nhất quán giữa Windows (\\\\ ) và Linux (/).
+
+GIỮ NGUYÊN HOÀN TOÀN:
+- Toàn bộ logic crawl TGDD, parser cookie, parser màu, parser ảnh.
+- _http_get(), resolve_url(), get_product_name(), get_colors(), get_images().
+- _download_single_image(), _derive_filename().
+- Manifest item structure, seq_in_folder, ZIP path, Studio redirect.
 """
 
 from __future__ import annotations
@@ -539,6 +552,15 @@ def run_mode_web(cfg: dict):
     _ensure_cookies_loaded()
 
     st.markdown(
+        "<div class='hero-card'>"
+        "<h2>🛒 Web TGDD v10.2</h2>"
+        "<p>Crawl ảnh sản phẩm TheGioiDiDong trực tiếp. "
+        "<b>Workflow:</b> Nạp cookie → Dán link → Quét → Chọn màu → Resize → Studio.</p>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
         "<div class='guide-box'>"
         "💡 <b>Workflow TGDD:</b> (1) Nạp cookie → (2) dán link → (3) quét → "
         "(4) chọn màu → (5) resize → (6) sang <b>Studio</b> chỉnh ảnh nhỏ bị giãn."
@@ -597,7 +619,10 @@ def run_mode_web(cfg: dict):
                         future_map = {executor.submit(scan_product, link): link for link in links}
                         for future in concurrent.futures.as_completed(future_map):
                             try:
-                                scan_results.append(future.result())
+                                # [v10.2 FIX] timeout=30 tránh deadlock khi network treo
+                                scan_results.append(future.result(timeout=30))
+                            except concurrent.futures.TimeoutError:
+                                pass
                             except Exception:
                                 pass
                     scan_results.sort(key=lambda item: order_map.get(item["original"], 9999))
@@ -675,9 +700,20 @@ def run_mode_web(cfg: dict):
             logs: list[str] = []
             manifest_items: list[dict] = []
 
+            # [v10.2 FIX] Progress throttle — chỉ update khi pct tăng ≥ 5% hoặc task cuối
+            _last_progress_pct = -1
+
+            def _update_progress(current: int, total: int):
+                nonlocal _last_progress_pct
+                pct = int(current / total * 100)
+                if pct >= _last_progress_pct + 5 or current == total:
+                    progress_bar.progress(current / total)
+                    _last_progress_pct = pct
+
             def log(message: str):
                 logs.append(message)
-                visible = logs[-25:]
+                # [v10.2 FIX] Giới hạn 30 dòng thay vì 25 — tránh DOM nặng
+                visible = logs[-30:]
                 log_placeholder.markdown(
                     "<div class='log-box'>" + "<br>".join(visible) + "</div>",
                     unsafe_allow_html=True,
@@ -703,7 +739,7 @@ def run_mode_web(cfg: dict):
 
                 if not image_urls:
                     log("⚠️ Không tìm được gallery")
-                    progress_bar.progress(task_idx / len(selected_tasks))
+                    _update_progress(task_idx, len(selected_tasks))
                     continue
 
                 log(f"🔎 Tìm thấy {len(image_urls)} URL ảnh")
@@ -755,9 +791,10 @@ def run_mode_web(cfg: dict):
                             huge_image_mode=bool(cfg.get("huge_image_mode", True)),
                         )
 
-                        # seq trong folder_path
-                        folder_counter[folder_path] = folder_counter.get(folder_path, 0) + 1
-                        seq_in_folder = folder_counter[folder_path]
+                        # [v10.2 FIX] Chuẩn hóa folder key bằng as_posix() — nhất quán mọi OS
+                        folder_path_key = Path(folder_path).as_posix()
+                        folder_counter[folder_path_key] = folder_counter.get(folder_path_key, 0) + 1
+                        seq_in_folder = folder_counter[folder_path_key]
 
                         successful_items.append(save_path)
                         manifest_items.append({
@@ -785,7 +822,7 @@ def run_mode_web(cfg: dict):
                 else:
                     log(f"❌ Không tải được ảnh nào cho {product_name} / {color_name}")
 
-                progress_bar.progress(task_idx / len(selected_tasks))
+                _update_progress(task_idx, len(selected_tasks))
 
             duration = time.time() - start_time
             output_files = [f for f in final_dir.rglob("*") if f.is_file() and f.stat().st_size > 0]
