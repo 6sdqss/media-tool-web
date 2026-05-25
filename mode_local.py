@@ -73,6 +73,14 @@ def run_mode_local(cfg: dict):
             st.session_state[key] = None if key == "local_zip_data" else ""
 
     st.markdown(
+        "<div class='hero-card'>"
+        "<h2>💻 Local ZIP v10.2</h2>"
+        "<p>Upload file ZIP chứa ảnh sản phẩm → Giải nén & Resize song song → ZIP kết quả. "
+        "Sau đó sang <b>Studio</b> để chỉnh viền ảnh nhỏ bị giãn.</p>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
         "<div class='guide-box'>"
         "💡 <b>Workflow Local:</b> nén thư mục ảnh thành <b>.zip</b> → upload → "
         "tự giải nén & resize song song. Sau đó qua <b>Studio</b> nếu cần chỉnh viền."
