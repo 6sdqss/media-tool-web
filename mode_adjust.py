@@ -1,24 +1,21 @@
 """
-mode_adjust.py — Studio Scale v10.0 (WHITE PROFESSIONAL UI)
+mode_adjust.py — Studio Scale v10.2 (WHITE PROFESSIONAL UI)
 ══════════════════════════════════════════════════════════════
-THAY ĐỔI SO VỚI v9.x:
+CHANGELOG v10.2 (nâng từ v10.0):
 
-[UI] Giao diện chuyển sang Modern White Professional (Canva/Figma style)
-[FIX] Dynamic canvas aspect ratio — canvas preview thay đổi theo output size thật
-[FIX] CSS inject đúng vị trí (trong function, không ở module level)
-[FIX] Hiển thị ảnh ĐÃ RENDER thay vì luôn dùng source_path
-[PERF] Chỉ build thumbnail cho items trên trang hiện tại (lazy)
-[PERF] Cache invalidation per-item, không flush toàn bộ
-[FIX] Per-item error boundary — 1 ảnh lỗi không crash batch
-[UX] Pagination đầy đủ với ⏮ ◀ [page] ▶ ⏭
-[UX] Bulk operations áp dụng đúng cho toàn bộ filtered items
+[FIX]  Download nút đơn per-ảnh: dùng open(dp, "rb") thay vì read_bytes()
+       cho file > _MAX_INMEM_IMG_BYTES (50MB). Tránh OOM khi ảnh gốc lớn.
+[UI]   CSS inject guard dùng key '_studio_css_v102' (thay vì '_studio_css_v10').
+[COMPAT] Đồng bộ version với toàn bộ hệ thống v10.2.
 
-GIỮ NGUYÊN:
-- Toàn bộ logic resize backend
-- Signature resize_to_multi_sizes
-- Cơ chế 2-layer CSS preview
-- merge_final_with_adjusted
-- ZIP export pipeline
+GIỮ NGUYÊN TỪ v10.0:
+[UI]  Giao diện Modern White Professional (Canva/Figma style).
+[FIX] Dynamic canvas aspect ratio — canvas preview thay đổi theo output size thật.
+[FIX] CSS inject đúng vị trí (trong function, không ở module level).
+[FIX] Hiển thị ảnh ĐÃ RENDER thay vì luôn dùng source_path.
+[PERF] Lazy thumbnail, per-item cache invalidation.
+[FIX] Per-item error boundary trong _run_render().
+[UX]  Pagination ⏮ ◀ [page] ▶ ⏭; Bulk operations cho toàn bộ filtered items.
 """
 from __future__ import annotations
 
@@ -51,14 +48,18 @@ _log = logging.getLogger("mode_adjust")
 _SMALL_THR = 600
 _IMG_EXT   = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
+# [v10.2 FIX] Ngưỡng Anti-OOM cho download nút đơn — file lớn dùng open() stream
+_MAX_INMEM_IMG_BYTES = 50 * 1024 * 1024  # 50 MB
+
 
 # ══════════════════════════════════════════════════════════════
 # CSS — inject once per session, trong function body
 # ══════════════════════════════════════════════════════════════
 def _inject_css():
-    if st.session_state.get("_studio_css_v10"):
+    # [v10.2] Guard key '_studio_css_v102' — đồng bộ với phiên bản mới
+    if st.session_state.get("_studio_css_v102"):
         return
-    st.session_state["_studio_css_v10"] = True
+    st.session_state["_studio_css_v102"] = True
     # CSS chính đã được inject bởi app.py (live-frame, rendered-frame, etc.)
     # Chỉ thêm Studio-specific overrides không có trong app.py
     st.markdown("""
@@ -525,13 +526,23 @@ def _card(
             st.markdown("<hr style='margin:8px 0;border-color:#f1f5f9'>", unsafe_allow_html=True)
             if dp and Path(dp).exists():
                 try:
-                    fb  = Path(dp).read_bytes()
+                    img_size = Path(dp).stat().st_size
                     bt  = "primary" if ds == "adjusted" else "secondary"
                     lbl = "📥 Tải ảnh đã chỉnh" if ds == "adjusted" else "📥 Tải ảnh"
-                    st.download_button(
-                        lbl, fb, Path(dp).name, "image/jpeg",
-                        use_container_width=True, type=bt, key=f"dl_{iid}",
-                    )
+                    if img_size <= _MAX_INMEM_IMG_BYTES:
+                        # File nhỏ — đọc vào RAM an toàn
+                        fb = Path(dp).read_bytes()
+                        st.download_button(
+                            lbl, fb, Path(dp).name, "image/jpeg",
+                            use_container_width=True, type=bt, key=f"dl_{iid}",
+                        )
+                    else:
+                        # [v10.2 FIX] File lớn > 50MB — dùng open() stream tránh OOM
+                        with open(dp, "rb") as fh:
+                            st.download_button(
+                                lbl, fh, Path(dp).name, "image/jpeg",
+                                use_container_width=True, type=bt, key=f"dl_{iid}",
+                            )
                 except Exception:
                     st.caption("⚠ Không đọc được file")
             else:
@@ -547,7 +558,7 @@ def render_adjustment_studio():
 
     st.markdown(
         "<div class='hero-card'>"
-        "<h2>🎚 Studio Scale v10.0</h2>"
+        "<h2>🎚 Studio Scale v10.2</h2>"
         "<p>Live Preview cập nhật realtime theo slider. Canvas preview <b>động theo output size thật</b>. "
         "Ảnh đã render hiển thị output thực từ đĩa.</p>"
         "</div>",
