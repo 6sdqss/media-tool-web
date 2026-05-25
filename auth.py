@@ -1,7 +1,10 @@
 """
-auth.py — Authentication & Auto-Sync GitHub System v10.0
+auth.py — Authentication & Auto-Sync GitHub System v10.2
 ─────────────────────────────────────────────────────────
-NÂNG CẤP so với v9.x:
+CHANGELOG v10.2 (không thay đổi logic — chỉ cập nhật nhãn phiên bản):
+  Đồng bộ version với app.py v10.2, mode_web/drive/local/adjust v10.2.
+
+NÂNG CẤP so với v9.x (giữ nguyên từ v10.0):
 
 [BUG FIX] SHA-256 + hardcoded salt → PBKDF2-HMAC-SHA256 (built-in, 260.000 iterations)
   Lý do cũ bị lỗi: SHA-256 một lần với salt cố định chạy trong <1ms → brute-force trivially fast.
