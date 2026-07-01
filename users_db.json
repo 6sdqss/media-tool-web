@@ -28,8 +28,12 @@
     "huynhcua": {
         "password": "pbkdf2$260000$56a05a46a169b1a83aff1e840d17fe98ec8d519bfb869c2c9fab06071f57a3aa$8a4e16ccd522786b7774fe3edd8f1c27554a8d318dc94c5219e9bfaf7a610b4e",
         "role": "user",
-        "status": "pending",
-        "permissions": [],
+        "status": "approved",
+        "permissions": [
+            "studio",
+            "drive",
+            "local"
+        ],
         "created_at": "2026-07-01 10:08:43",
         "note": ""
     }
