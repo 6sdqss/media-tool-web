@@ -40,8 +40,12 @@
     "nguyento": {
         "password": "pbkdf2$260000$365eb5bbb7667f642046e357138f7742ec8329d3d9ca07b747aa19b622014606$f65503b3dbc952fc22d43c4bd347bf7e01883414c4f3e118ee893aaf9b13211c",
         "role": "user",
-        "status": "pending",
-        "permissions": [],
+        "status": "approved",
+        "permissions": [
+            "studio",
+            "drive",
+            "local"
+        ],
         "created_at": "2026-07-01 10:12:33",
         "note": ""
     }
