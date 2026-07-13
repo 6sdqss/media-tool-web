@@ -52,8 +52,11 @@
     "trinh174872": {
         "password": "pbkdf2$260000$ebf0f60d7a383d345bac29fb4e86a0b87ea5bc31124d618b249a5517fd398d62$af57273846329f16c6551d41d9769c787f9dcf909f0140de1240162b763754cc",
         "role": "user",
-        "status": "pending",
-        "permissions": [],
+        "status": "approved",
+        "permissions": [
+            "local",
+            "drive"
+        ],
         "created_at": "2026-07-13 04:27:27",
         "note": ""
     }
