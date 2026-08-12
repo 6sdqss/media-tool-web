@@ -251,8 +251,12 @@ def run_mode_local(cfg: dict):
             except Exception as exc:
                 return (file_path.name, False, str(exc), None)
 
-        # ── Multi-thread resize ──
-        max_workers = min(8, max(1, int(cfg.get("max_workers", 4))))
+        # [FIX v11.0 — ANTI-OOM] Hạ trần từ 8 xuống 5 worker. Khác với mode_web
+        # (chỉ tải song song, resize tuần tự sau đó), ở đây resize_to_multi_sizes
+        # chạy TRỰC TIẾP bên trong từng thread — tức nhiều ảnh được giải mã/resize
+        # cùng lúc trong RAM. 8 luồng x ảnh nặng cùng lúc là rủi ro OOM chính trên
+        # Streamlit Cloud. 5 luồng vẫn đủ nhanh nhưng an toàn hơn nhiều.
+        max_workers = min(5, max(1, int(cfg.get("max_workers", 4))))
         batch_start = time.time()
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
