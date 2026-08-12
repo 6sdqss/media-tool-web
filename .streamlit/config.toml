@@ -11,9 +11,9 @@ fastReruns = false
 gatherUsageStats = false
 
 [theme]
-base="light"
-primaryColor="#3b82f6"
-backgroundColor="#f4f6f9"
-secondaryBackgroundColor="#ffffff"
-textColor="#1e293b"
+base="dark"
+primaryColor="#FF3AF2"
+backgroundColor="#0D0D1A"
+secondaryBackgroundColor="#1A1330"
+textColor="#FFFFFF"
 font="sans serif"
