@@ -20,6 +20,7 @@ from __future__ import annotations
 import io
 import os
 import re
+import gc
 import json
 import time
 import base64
@@ -49,9 +50,21 @@ _log = logging.getLogger("media_tool_utils")
 # ║  CẤU HÌNH ẢNH LỚN                                            ║
 # ╚══════════════════════════════════════════════════════════════╝
 ImageFile.LOAD_TRUNCATED_IMAGES = True
-Image.MAX_IMAGE_PIXELS = None
+
+# [FIX v11.0 — ANTI-OOM] TRƯỚC ĐÂY: Image.MAX_IMAGE_PIXELS = None → tắt HẲN
+# giới hạn an toàn của Pillow. Hệ quả: 1 ảnh "nặng" (scan độ phân giải cao,
+# ảnh RAW xuất PNG, hoặc file lỗi/độc hại) được giải mã full-res vào RAM
+# không giới hạn → Streamlit Cloud (RAM giới hạn ~1GB) bị Out-Of-Memory và
+# CRASH TOÀN BỘ APP (mất luôn cả các session khác đang chạy).
+# NAY: đặt trần hợp lý (~120 triệu pixel — dư sức cho ảnh scan 4K-8K thật)
+# để chặn ảnh "bomb" trước khi nó kịp ăn hết RAM, đồng thời log rõ ràng
+# thay vì để tiến trình chết im lặng.
+_MAX_SAFE_PIXELS = 120_000_000  # ~120 MP (ví dụ 12000x10000)
+Image.MAX_IMAGE_PIXELS = _MAX_SAFE_PIXELS
 try:
-    warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+    # Không ignore nữa — convert thành exception để code bên dưới bắt được
+    # và báo lỗi rõ ràng cho người dùng thay vì chỉ warn ra log rồi vẫn cố tải.
+    warnings.simplefilter("error", Image.DecompressionBombWarning)
 except Exception:
     pass
 
@@ -995,10 +1008,28 @@ def _prepare_pillow_image(
     target_hint: tuple[int, int] | None = None,
     huge_image_mode: bool = True,
 ) -> Image.Image:
+    """
+    [FIX v11.0 — ANTI-OOM] Thứ tự xử lý được đảo lại so với bản cũ.
+
+    Lỗi cũ: convert RGB TRƯỚC khi thu nhỏ. img.draft() chỉ có tác dụng
+    với ảnh JPEG (không hỗ trợ PNG/WebP) → với 1 ảnh PNG/WebP "nặng"
+    (vd ảnh chụp màn hình, ảnh scan độ phân giải cao), Pillow phải giải mã
+    TOÀN BỘ pixel gốc vào RAM rồi mới thu nhỏ → đỉnh RAM rất cao, kết hợp
+    nhiều ảnh xử lý song song (ThreadPoolExecutor) → tràn RAM, sập app.
+
+    Nay: cố downsize bằng thumbnail() NGAY SAU khi mở ảnh (trước convert
+    RGB), giảm ngưỡng kích hoạt từ *4 xuống *2 lần kích thước đích → thu
+    nhỏ sớm hơn, giảm đáng kể RAM đỉnh cho ảnh siêu lớn.
+    """
     img = Image.open(image_path)
-    img = ImageOps.exif_transpose(img)
+
+    try:
+        img = ImageOps.exif_transpose(img)
+    except Exception:
+        pass
 
     if huge_image_mode and target_hint and target_hint[0] and target_hint[1]:
+        # JPEG: draft() giảm RAM giải mã ngay từ lúc mở file (nhanh & rẻ)
         try:
             draft_w = max(int(target_hint[0] * 2.8), 1)
             draft_h = max(int(target_hint[1] * 2.8), 1)
@@ -1006,21 +1037,18 @@ def _prepare_pillow_image(
         except Exception:
             pass
 
+        # [FIX] Thu nhỏ TRƯỚC khi convert RGB — quan trọng nhất với PNG/WebP
+        # vì draft() không có tác dụng với các định dạng này.
+        try:
+            source_long = max(img.width, img.height)
+            desired_long = max(target_hint[0], target_hint[1])
+            if source_long > desired_long * 2:  # hạ ngưỡng từ *4 → *2
+                pre_limit = int(desired_long * 2.4)
+                img.thumbnail((pre_limit, pre_limit), _get_resample_filter())
+        except Exception:
+            pass
+
     img = _convert_to_rgb(img)
-
-    if huge_image_mode and target_hint and target_hint[0] and target_hint[1]:
-        source_long = max(img.width, img.height)
-        desired_long = max(target_hint[0], target_hint[1])
-        if source_long > desired_long * 4:
-            pre_limit = int(desired_long * 2.4)
-            try:
-                reduced = img.copy()
-                reduced.thumbnail((pre_limit, pre_limit), _get_resample_filter())
-                img.close()
-                img = reduced
-            except Exception:
-                pass
-
     return img
 
 
@@ -1077,6 +1105,11 @@ def crop_photoshop_square(
                 final_image.paste(img, (offset_x, offset_y))
 
             _save_output_image(final_image, output_path, quality, export_format)
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        _log.error(
+            "Crop bỏ qua — ảnh vượt trần an toàn %d px [%s]: %s",
+            _MAX_SAFE_PIXELS, image_path.name, exc,
+        )
     except Exception as exc:
         _log.warning("Crop error [%s]: %s", image_path.name, exc)
 
@@ -1150,10 +1183,37 @@ def resize_image(
                 canvas.paste(resized, (paste_x, paste_y))
 
             _save_output_image(canvas, output_path, quality, export_format)
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        # [FIX v11.0] Trước đây bị nuốt im lặng bởi warnings.simplefilter("ignore"),
+        # khiến app cố giải mã ảnh khổng lồ và OOM crash mà không rõ nguyên nhân.
+        # Nay: chặn sớm + log rõ ràng, ảnh này bị bỏ qua thay vì làm sập cả batch.
+        _log.error(
+            "Resize bỏ qua — ảnh vượt trần an toàn %d px [%s]: %s",
+            _MAX_SAFE_PIXELS, image_path.name, exc,
+        )
     except (UnidentifiedImageError, OSError) as exc:
         _log.warning("Resize error [%s]: %s", image_path.name, exc)
     except Exception as exc:
         _log.warning("Resize error [%s]: %s", image_path.name, exc)
+    finally:
+        # [FIX v11.0 — ANTI-OOM] Giải phóng ngay các buffer ảnh trung gian
+        # (resized/canvas/cropped có thể vài chục MB mỗi cái) thay vì chờ GC
+        # tự động — quan trọng khi resize hàng trăm ảnh liên tiếp trong 1 batch.
+        for _tmp_name in ("canvas", "resized", "cropped"):
+            _tmp_obj = locals().get(_tmp_name)
+            if _tmp_obj is not None:
+                try:
+                    _tmp_obj.close()
+                except Exception:
+                    pass
+
+
+# [FIX v11.0 — ANTI-OOM] Đếm số lần gọi để định kỳ gc.collect().
+# Đặt ở đây (thay vì sửa riêng từng vòng lặp trong mode_web/mode_local/
+# mode_drive) để áp dụng đồng bộ cho CẢ 3 MODULE cùng lúc — đúng yêu cầu
+# đồng bộ tính năng batch, không cần sửa 3 nơi.
+_resize_call_counter = 0
+_GC_EVERY_N_IMAGES = 6
 
 
 def resize_to_multi_sizes(
@@ -1169,6 +1229,8 @@ def resize_to_multi_sizes(
     huge_image_mode: bool = True,
 ):
     """Resize 1 ảnh sang nhiều kích thước cùng lúc."""
+    global _resize_call_counter
+
     fmt_info = EXPORT_FORMATS.get(export_format, EXPORT_FORMATS["JPEG (.jpg)"])
     is_multi = len(sizes) > 1
     item_scale = int((per_image_settings or {}).get("scale_pct", scale_pct))
@@ -1191,6 +1253,15 @@ def resize_to_multi_sizes(
             offset_x=item_offset_x, offset_y=item_offset_y,
             huge_image_mode=huge_image_mode,
         )
+
+    # [FIX v11.0 — ANTI-OOM] Batch nhiều trăm ảnh liên tiếp có thể tích tụ
+    # rác tham chiếu vòng (Pillow ImageFile) mà GC thế hệ 0 không dọn kịp,
+    # đặc biệt khi chạy trong nhiều ThreadPoolExecutor worker song song.
+    # Ép gc.collect() định kỳ (không phải mỗi ảnh — tốn CPU) để giữ RAM ổn định
+    # xuyên suốt batch dài thay vì tăng dần tới lúc bị Streamlit Cloud kill.
+    _resize_call_counter += 1
+    if _resize_call_counter % _GC_EVERY_N_IMAGES == 0:
+        gc.collect()
 
 
 # ╔══════════════════════════════════════════════════════════════╗
