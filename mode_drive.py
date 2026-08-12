@@ -102,6 +102,27 @@ def run_mode_drive(cfg: dict, drive_service):
         key="drive_links_input",
     )
 
+    # [NEW v11.0] Retry link lỗi — thay vì phải tự tìm & dán lại link đã báo đỏ.
+    failed_links_prev = st.session_state.get("drive_failed_links") or []
+    if failed_links_prev:
+        st.markdown(
+            f"<div class='guide-box' style='border-color:#FF3AF2'>"
+            f"⚠️ Lần chạy trước có <b>{len(failed_links_prev)} link lỗi</b> "
+            f"(tải thất bại / bị Google chặn / hết quyền truy cập)."
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        retry_col1, retry_col2 = st.columns([1, 1])
+        with retry_col1:
+            if st.button("🔁 Thử lại các link lỗi", use_container_width=True, key="btn_retry_failed_drive"):
+                st.session_state["drive_links_input"] = "\n".join(failed_links_prev)
+                st.session_state["drive_failed_links"] = []
+                st.rerun()
+        with retry_col2:
+            if st.button("✖️ Bỏ qua danh sách lỗi", use_container_width=True, key="btn_clear_failed_drive"):
+                st.session_state["drive_failed_links"] = []
+                st.rerun()
+
     custom_names_text = ""
     if rename_enabled:
         st.markdown(
@@ -183,6 +204,14 @@ def run_mode_drive(cfg: dict, drive_service):
         manifest_items: list[dict] = []
         folder_counter: dict[str, int] = {}
 
+        # [NEW v11.0] Theo dõi link lỗi để cho phép "Thử lại" thay vì phải
+        # tự rà lại log để tìm link nào fail giữa hàng chục link đã dán.
+        failed_links_this_run: list[str] = []
+
+        def _mark_failed(bad_url: str):
+            if bad_url and bad_url not in failed_links_this_run:
+                failed_links_this_run.append(bad_url)
+
         def _bump_seq(folder_key: str) -> int:
             folder_counter[folder_key] = folder_counter.get(folder_key, 0) + 1
             return folder_counter[folder_key]
@@ -207,6 +236,7 @@ def run_mode_drive(cfg: dict, drive_service):
             if not file_id:
                 _log_ui(f"⚠️ [{link_index + 1}/{total_links}] Link sai định dạng: {url[:60]}")
                 _log.warning("Invalid Drive URL: %s", url)
+                _mark_failed(url)
                 _update_progress(link_index + 1, total_links)
                 continue
 
@@ -253,6 +283,7 @@ def run_mode_drive(cfg: dict, drive_service):
                         if count == 0:
                             _log_ui(f"⚠️ '{folder_name}' rỗng hoặc không có quyền truy cập.")
                             _log.warning("Empty folder or no permission: folder_id=%s", file_id)
+                            _mark_failed(url)
                             _update_progress(link_index + 1, total_links)
                             continue
                         _log_ui(f"✅ Tải {count} ảnh từ '{folder_name}' (Drive API).")
@@ -292,11 +323,13 @@ def run_mode_drive(cfg: dict, drive_service):
 
                             if not success:
                                 _log_ui(f"❌ '{folder_name}' bị Google chặn — bỏ qua link này.")
+                                _mark_failed(url)
                                 _update_progress(link_index + 1, total_links)
                                 continue
 
                         except ImportError:
                             _log_ui("❌ Thiếu gdown và Google API — không thể tải folder.")
+                            _mark_failed(url)
                             _update_progress(link_index + 1, total_links)
                             continue
 
@@ -311,6 +344,7 @@ def run_mode_drive(cfg: dict, drive_service):
 
                     if not raw_images:
                         _log_ui(f"⚠️ '{folder_name}': Không có ảnh hợp lệ sau khi tải.")
+                        _mark_failed(url)
                         _update_progress(link_index + 1, total_links)
                         continue
 
@@ -358,6 +392,7 @@ def run_mode_drive(cfg: dict, drive_service):
                     if not file_path or not file_path.exists() or file_path.stat().st_size == 0:
                         _log_ui(f"❌ Tải file '{folder_name}' thất bại hoàn toàn.")
                         _log.error("download_direct_file returned empty for %s", file_id)
+                        _mark_failed(url)
                         _update_progress(link_index + 1, total_links)
                         continue
 
@@ -370,6 +405,7 @@ def run_mode_drive(cfg: dict, drive_service):
                     except Exception as resize_exc:
                         _log.warning("Resize failed for %s: %s", file_path.name, resize_exc)
                         _log_ui(f"  ⚠️ Resize lỗi: {file_path.name} — {resize_exc}")
+                        _mark_failed(url)
                         _update_progress(link_index + 1, total_links)
                         continue
 
@@ -412,6 +448,7 @@ def run_mode_drive(cfg: dict, drive_service):
                 # [P6] Catch-all per-link — không crash toàn bộ batch
                 _log_ui(f"❌ Sự cố không xử lý được với '{folder_name}': {str(exc)[:100]}")
                 _log.exception("Unhandled exception for link %s:", url)
+                _mark_failed(url)
                 _update_progress(link_index + 1, total_links)
                 continue
 
@@ -424,6 +461,14 @@ def run_mode_drive(cfg: dict, drive_service):
                 time.sleep(_INTER_LINK_DELAY_SECONDS)
 
         # ── Post-processing ──────────────────────────────────────────
+        # [NEW v11.0] Lưu danh sách link lỗi để hiển thị nút "Thử lại" ở lần render sau.
+        st.session_state["drive_failed_links"] = failed_links_this_run
+        if failed_links_this_run:
+            _log_ui(
+                f"⚠️ {len(failed_links_this_run)} link lỗi — dùng nút "
+                f"'🔁 Thử lại các link lỗi' phía trên (sau khi rerun) để xử lý lại riêng các link này."
+            )
+
         duration = time.time() - start_time
         all_output_files = [f for f in final_dir.rglob("*") if f.is_file() and f.stat().st_size > 0]
 
