@@ -76,33 +76,33 @@ def _inject_css():
 /* Compact number display beside slider */
 .slider-val {
     display:inline-block;
-    background:#f5f3ff;
-    color:#7c3aed;
+    background:rgba(255,58,242,.14);
+    color:#FFE600;
     font-size:0.78rem;
-    font-weight:700;
-    padding:1px 7px;
-    border-radius:5px;
+    font-weight:800;
+    padding:1px 8px;
+    border-radius:999px;
     min-width:38px;
     text-align:center;
-    border:1px solid #ddd6fe;
+    border:2px solid #FF3AF2;
 }
 /* Info pill row */
 .info-pills {
     display:flex;
     flex-wrap:wrap;
-    gap:4px;
+    gap:5px;
     margin:4px 0;
 }
 .info-pill {
     font-size:0.74rem;
-    color:#64748b;
-    background:#f8fafc;
-    border:1px solid #e2e8f0;
-    border-radius:5px;
-    padding:2px 8px;
+    color:#F3EEFF;
+    background:#2D1B4E;
+    border:1.5px solid #7B2FFF;
+    border-radius:8px;
+    padding:2px 9px;
     white-space:nowrap;
 }
-.info-pill b { color:#374151; }
+.info-pill b { color:#FFFFFF; font-weight:800; }
 /* Adjust section header */
 .adj-section-head {
     display:flex;
@@ -110,7 +110,7 @@ def _inject_css():
     justify-content:space-between;
     margin-bottom:6px;
 }
-.adj-section-head span { font-size:0.82rem;color:#94a3b8; }
+.adj-section-head span { font-size:0.82rem;color:#9C8FC4; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -416,7 +416,7 @@ def _card(
         with h2:
             parts = [f"<span class='{pc}'>{pl}</span>"]
             if small:
-                parts.append("<span class='spill' style='background:#fef2f2;color:#dc2626;border:1px solid #fca5a5'>⚠ Ảnh nhỏ</span>")
+                parts.append("<span class='spill' style='background:rgba(255,58,242,.15);color:#FF3AF2;border:1.5px solid #FF3AF2'>⚠ Ảnh nhỏ</span>")
             st.markdown(
                 f"<div class='info-pills'>{''.join(parts)}</div>",
                 unsafe_allow_html=True,
@@ -523,7 +523,7 @@ def _card(
                     st.session_state[selk] = True; st.rerun()
 
             # ── Download single ───────────────────────────────
-            st.markdown("<hr style='margin:8px 0;border-color:#f1f5f9'>", unsafe_allow_html=True)
+            st.markdown("<hr style='margin:8px 0;border-color:#7B2FFF'>", unsafe_allow_html=True)
             if dp and Path(dp).exists():
                 try:
                     img_size = Path(dp).stat().st_size
@@ -615,9 +615,9 @@ def render_adjustment_studio():
         f"<div class='info-pills'>"
         f"<span class='info-pill'>📦 {meta.get('batch_id','-')[:20]}</span>"
         f"<span class='info-pill'>📷 <b>{total}</b> ảnh</span>"
-        f"<span class='info-pill' style='color:#7c3aed'>✏️ <b>{sel_n}</b> đang chọn</span>"
-        f"<span class='info-pill' style='color:#dc2626'>⚠ <b>{sml_n}</b> ảnh nhỏ</span>"
-        f"<span class='info-pill' style='background:#f5f3ff;border-color:#ddd6fe'>"
+        f"<span class='info-pill' style='color:#00F5D4'>✏️ <b>{sel_n}</b> đang chọn</span>"
+        f"<span class='info-pill' style='color:#FF3AF2'>⚠ <b>{sml_n}</b> ảnh nhỏ</span>"
+        f"<span class='info-pill' style='background:#2D1B4E;border-color:#7B2FFF'>"
         f"🎯 Canvas <b>{tw}×{th}</b></span>"
         f"</div>",
         unsafe_allow_html=True,
@@ -706,7 +706,7 @@ def render_adjustment_studio():
     st.markdown("""
         <div class="export-panel">
             <h2>🚀 Xuất file & tải về</h2>
-            <p style="color:#64748b;font-size:.9rem">
+            <p style="color:#C9BEEA;font-size:.9rem">
                 <b>Bước 1</b>: Render ảnh đã chọn →
                 <b>Bước 2</b>: Đóng gói ZIP →
                 <b>Bước 3</b>: Tải về máy.
@@ -716,14 +716,14 @@ def render_adjustment_studio():
 
     ec1, ec2 = st.columns(2)
     with ec1:
-        st.markdown("<h4 style='color:#7c3aed;margin-bottom:4px'>▶ Bước 1: Render</h4>", unsafe_allow_html=True)
+        st.markdown("<h4 style='color:#FFE600;margin-bottom:4px'>▶ Bước 1: Render</h4>", unsafe_allow_html=True)
         do_render = st.button(
             f"🎨 Render {len(sel_items)} ảnh đã chọn",
             type="primary", use_container_width=True,
             key="adj_render", disabled=(len(sel_items) == 0),
         )
     with ec2:
-        st.markdown("<h4 style='color:#7c3aed;margin-bottom:4px'>▶ Bước 2: Tạo ZIP</h4>", unsafe_allow_html=True)
+        st.markdown("<h4 style='color:#FFE600;margin-bottom:4px'>▶ Bước 2: Tạo ZIP</h4>", unsafe_allow_html=True)
         do_export = st.button(
             "📦 ZIP gộp (ảnh đã chỉnh + gốc)",
             type="primary", use_container_width=True, key="adj_export",
@@ -777,7 +777,7 @@ def render_adjustment_studio():
 
     # ── Download ZIP ──────────────────────────────────────────
     st.markdown(
-        "<h4 style='color:#7c3aed;margin-top:16px;margin-bottom:4px'>"
+        "<h4 style='color:#FFE600;margin-top:16px;margin-bottom:4px'>"
         "▶ Bước 3: Tải ZIP</h4>",
         unsafe_allow_html=True,
     )
