@@ -41,15 +41,18 @@ ENV PYTHONUNBUFFERED=1
 # LÚC BUILD (khi package.json chắc chắn đúng), build tĩnh 1 lần cho xong,
 # rồi lúc chạy container CHỈ khởi động backend (--backend-only), không để
 # `reflex run` tự động build lại frontend nữa.
-RUN reflex init --loglevel debug \
- && echo "=== package.json scripts ===" \
- && python3 -c "import json; print(json.dumps(json.load(open('.web/package.json'))['scripts'], indent=2))" \
- && cd .web \
- && echo "=== node_modules/.bin listing ===" \
+# `reflex init` MỘT MÌNH không cài đủ devDependencies (react-router, vite...)
+# — các gói đó chỉ được `reflex export` cài (qua "bun add -d ..." nội bộ),
+# nhưng `reflex export` LẠI lỗi ở đúng bước cuối "bun run export" (Script
+# not found / command not found tuỳ lúc — bug của Reflex 0.9.8). Giải pháp:
+# để `reflex export` chạy hết phần cài đặt (bỏ qua lỗi ở bước cuối bằng
+# "|| true"), sau đó TỰ gọi react-router build thủ công bằng bun x — lúc
+# này node_modules/.bin/react-router đã tồn tại thật.
+RUN reflex export --frontend-only --no-zip --loglevel debug || true
+RUN cd .web \
+ && echo "=== node_modules/.bin listing (after export attempt) ===" \
  && ls -la node_modules/.bin/ 2>&1 | head -30 \
- && echo "=== node_modules/.bin/react-router ===" \
- && (cat node_modules/.bin/react-router 2>&1 || echo "MISSING FILE") \
- && echo "=== trying bunx react-router build ===" \
+ && echo "=== running bun x react-router build ===" \
  && /root/.local/share/reflex/bun/bin/bun x react-router build \
  && echo "=== .web build output ===" \
  && find . -maxdepth 3 -iname "*build*" -o -iname "*dist*" | grep -v node_modules | head -50
