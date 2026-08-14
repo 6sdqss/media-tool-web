@@ -48,9 +48,15 @@ ENV PYTHONUNBUFFERED=1
 # để `reflex export` chạy hết phần cài đặt (bỏ qua lỗi ở bước cuối bằng
 # "|| true"), sau đó TỰ gọi react-router build thủ công bằng bun x — lúc
 # này node_modules/.bin/react-router đã tồn tại thật.
-RUN reflex export --frontend-only --no-zip --loglevel debug || true
+# `reflex export` (CLI export command) chỉ cài gói cơ bản (~1.5s) rồi lỗi
+# ngay ở "bun run export", KHÔNG BAO GIỜ cài devDependencies (react-router,
+# vite...). Chỉ có `reflex run --env prod` (đường chạy đầy đủ) mới cài đủ
+# CẢ 2 vòng gói (main + dev, ~30s tổng) trước khi cũng lỗi ở cùng bước đó.
+# Nên gọi `reflex run --env prod` ở đây (cho lỗi luôn, || true bỏ qua) chỉ
+# để tận dụng side-effect cài đủ node_modules, rồi tự build tay bằng bun x.
+RUN timeout 120 reflex run --env prod --loglevel debug || true
 RUN cd .web \
- && echo "=== node_modules/.bin listing (after export attempt) ===" \
+ && echo "=== node_modules/.bin listing (after reflex run attempt) ===" \
  && ls -la node_modules/.bin/ 2>&1 | head -30 \
  && echo "=== running bun x react-router build ===" \
  && /root/.local/share/reflex/bun/bin/bun x react-router build \
