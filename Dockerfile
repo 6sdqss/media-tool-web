@@ -16,12 +16,13 @@ RUN pip install --no-cache-dir -r requirements.txt \
 
 WORKDIR /app/reflex_app
 
-# reflex init sẽ tự tải bun (cần internet lúc build — Render có internet đầy
-# đủ nên bước này chạy được, khác với sandbox nội bộ dùng để soạn code).
-RUN reflex init
-
-# REFLEX_API_URL: URL public của service (Render set qua biến RENDER_EXTERNAL_URL).
-# Build frontend ở chế độ production, trỏ đúng domain thật thay vì localhost.
+# KHÔNG chạy `reflex init` riêng trước — nó tạo sẵn .web/ bằng template
+# không có script "export" trong package.json, khiến bước export sau báo
+# "Script not found \"export\"" (đã gặp lỗi này khi deploy lần đầu trên
+# Render). Để `reflex export` tự init + build trong 1 bước duy nhất.
+#
+# API_URL: URL public của service (Render set qua biến RENDER_EXTERNAL_URL,
+# điền tay ở render.yaml sau lần deploy đầu tiên biết được domain thật).
 ARG API_URL
 ENV API_URL=${API_URL}
 RUN reflex export --frontend-only --no-zip --loglevel debug
