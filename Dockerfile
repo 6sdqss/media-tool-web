@@ -45,7 +45,7 @@ RUN reflex init --loglevel debug \
  && echo "=== package.json scripts ===" \
  && python3 -c "import json; print(json.dumps(json.load(open('.web/package.json'))['scripts'], indent=2))" \
  && cd .web \
- && /root/.local/share/reflex/bun/bin/bun run export \
+ && PATH="$PWD/node_modules/.bin:/root/.local/share/reflex/bun/bin:$PATH" /root/.local/share/reflex/bun/bin/bun run export \
  && echo "=== .web build output ===" \
  && find . -maxdepth 3 -iname "*build*" -o -iname "*dist*" | grep -v node_modules | head -50
 
