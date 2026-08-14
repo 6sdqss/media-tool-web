@@ -1,0 +1,14 @@
+# render.yaml — Blueprint để Render tự nhận diện và tạo Web Service.
+# Cách dùng: Render Dashboard -> New -> Blueprint -> chọn repo này -> Apply.
+services:
+  - type: web
+    name: media-tool-pro
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: API_URL
+        sync: false   # điền tay = https://media-tool-pro.onrender.com sau lần deploy đầu (Render báo domain thật ở đây)
+    healthCheckPath: /ping
