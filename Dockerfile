@@ -27,6 +27,11 @@ WORKDIR /app/reflex_app
 # điền tay ở render.yaml sau lần deploy đầu tiên biết được domain thật).
 ARG API_URL
 ENV API_URL=${API_URL}
+# Bắt buộc Python xả log ngay lập tức (không buffer) — nếu không, khi
+# `reflex run` chạy nền bằng "&" và crash sớm, log debug bị kẹt trong
+# buffer và KHÔNG BAO GIỜ xuất hiện trên Render (đã gặp: container chạy
+# nhưng cổng 8000 luôn "connection refused", không có bất kỳ log lỗi nào).
+ENV PYTHONUNBUFFERED=1
 
 # Caddy làm reverse-proxy gộp frontend (port 3000 nội bộ) + backend
 # (port 8000 nội bộ) ra DUY NHẤT 1 cổng $PORT mà Render forward traffic vào.
