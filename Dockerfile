@@ -33,6 +33,16 @@ ENV API_URL=${API_URL}
 # nhưng cổng 8000 luôn "connection refused", không có bất kỳ log lỗi nào).
 ENV PYTHONUNBUFFERED=1
 
+# DEBUG TẠM THỜI: `reflex run --env prod` VẪN gọi nội bộ `bun run export`
+# và lỗi y hệt "Script not found \"export\"" (xác nhận đây là bug/khác biệt
+# phiên bản của chính Reflex 0.9.8, không phải do Dockerfile). In ra
+# package.json thật mà `reflex init` tạo để biết tên script đúng cần gọi
+# thay cho "export" (sandbox soạn code không ra được bun.sh nên không tự
+# kiểm tra được — phải xem qua build log của Render, nơi có internet đầy đủ).
+RUN reflex init --loglevel debug \
+ && echo "=== package.json scripts ===" \
+ && python3 -c "import json; print(json.dumps(json.load(open('.web/package.json'))['scripts'], indent=2))"
+
 # Caddy làm reverse-proxy gộp frontend (port 3000 nội bộ) + backend
 # (port 8000 nội bộ) ra DUY NHẤT 1 cổng $PORT mà Render forward traffic vào.
 COPY Caddyfile /app/Caddyfile
