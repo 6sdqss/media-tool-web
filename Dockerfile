@@ -45,7 +45,12 @@ RUN reflex init --loglevel debug \
  && echo "=== package.json scripts ===" \
  && python3 -c "import json; print(json.dumps(json.load(open('.web/package.json'))['scripts'], indent=2))" \
  && cd .web \
- && PATH="$PWD/node_modules/.bin:/root/.local/share/reflex/bun/bin:$PATH" /root/.local/share/reflex/bun/bin/bun run export \
+ && echo "=== node_modules/.bin listing ===" \
+ && ls -la node_modules/.bin/ 2>&1 | head -30 \
+ && echo "=== node_modules/.bin/react-router ===" \
+ && (cat node_modules/.bin/react-router 2>&1 || echo "MISSING FILE") \
+ && echo "=== trying bunx react-router build ===" \
+ && /root/.local/share/reflex/bun/bin/bun x react-router build \
  && echo "=== .web build output ===" \
  && find . -maxdepth 3 -iname "*build*" -o -iname "*dist*" | grep -v node_modules | head -50
 
