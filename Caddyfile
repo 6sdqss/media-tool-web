@@ -1,5 +1,5 @@
-# Caddyfile — gộp frontend tĩnh (Reflex export) + backend API (port 8000)
-# ra 1 cổng duy nhất (Render forward traffic vào biến môi trường PORT).
+# Caddyfile — gộp frontend (reflex run, port 3000 nội bộ) + backend API
+# (port 8000 nội bộ) ra 1 cổng duy nhất (Render forward traffic vào $PORT).
 :{$PORT}
 
 handle /_event/* {
@@ -9,7 +9,5 @@ handle /ping {
     reverse_proxy 127.0.0.1:8000
 }
 handle {
-    root * /app/reflex_app/.web/_static
-    try_files {path} /index.html
-    file_server
+    reverse_proxy 127.0.0.1:3000
 }

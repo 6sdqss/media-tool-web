@@ -16,20 +16,24 @@ RUN pip install --no-cache-dir -r requirements.txt \
 
 WORKDIR /app/reflex_app
 
-# KHÔNG chạy `reflex init` riêng trước — nó tạo sẵn .web/ bằng template
-# không có script "export" trong package.json, khiến bước export sau báo
-# "Script not found \"export\"" (đã gặp lỗi này khi deploy lần đầu trên
-# Render). Để `reflex export` tự init + build trong 1 bước duy nhất.
+# ĐÃ THỬ `reflex export --frontend-only` nhưng Reflex 0.9.8 (bản dùng
+# Vite + react-router mới) không còn script "export" trong package.json
+# template -> luôn báo "Script not found \"export\"" (lỗi nội bộ của bản
+# Reflex này, không phải do cấu hình Dockerfile). Bỏ hẳn build-time export,
+# để `reflex run --env prod` tự build + serve lúc container khởi động —
+# đây là lệnh chính, được test nhiều nhất trong hệ sinh thái Reflex.
 #
 # API_URL: URL public của service (Render set qua biến RENDER_EXTERNAL_URL,
 # điền tay ở render.yaml sau lần deploy đầu tiên biết được domain thật).
 ARG API_URL
 ENV API_URL=${API_URL}
-RUN reflex export --frontend-only --no-zip --loglevel debug
 
-# Caddy làm reverse-proxy gộp frontend (static, port 3000 nội bộ) + backend
+# Caddy làm reverse-proxy gộp frontend (port 3000 nội bộ) + backend
 # (port 8000 nội bộ) ra DUY NHẤT 1 cổng $PORT mà Render forward traffic vào.
 COPY Caddyfile /app/Caddyfile
 
-# Render tự inject $PORT lúc runtime, Caddyfile đọc {$PORT} nên không cần EXPOSE cố định
-CMD ["sh", "-c", "reflex run --env prod --backend-only --backend-port 8000 & caddy run --config /app/Caddyfile --adapter caddyfile"]
+# Render tự inject $PORT lúc runtime, Caddyfile đọc {$PORT} nên không cần EXPOSE cố định.
+# Lưu ý: build frontend (bun/vite) diễn ra ở LẦN CHẠY ĐẦU TIÊN của container
+# (không phải lúc docker build) nên request đầu tiên sau khi container khởi
+# động / thức dậy (free tier) có thể chậm hơn bình thường vài chục giây.
+CMD ["sh", "-c", "reflex run --env prod --backend-host 0.0.0.0 --backend-port 8000 --frontend-port 3000 --loglevel debug & caddy run --config /app/Caddyfile --adapter caddyfile"]
