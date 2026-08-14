@@ -33,15 +33,21 @@ ENV API_URL=${API_URL}
 # nhưng cổng 8000 luôn "connection refused", không có bất kỳ log lỗi nào).
 ENV PYTHONUNBUFFERED=1
 
-# DEBUG TẠM THỜI: `reflex run --env prod` VẪN gọi nội bộ `bun run export`
-# và lỗi y hệt "Script not found \"export\"" (xác nhận đây là bug/khác biệt
-# phiên bản của chính Reflex 0.9.8, không phải do Dockerfile). In ra
-# package.json thật mà `reflex init` tạo để biết tên script đúng cần gọi
-# thay cho "export" (sandbox soạn code không ra được bun.sh nên không tự
-# kiểm tra được — phải xem qua build log của Render, nơi có internet đầy đủ).
+# `reflex export` / `reflex run --env prod` gọi nội bộ lệnh `bun run export`
+# nhưng lỗi "Script not found \"export\"" xảy ra dù package.json THẬT (in ra
+# kiểm tra) có đủ script này — vì `reflex run --env prod` ở RUNTIME tự
+# re-init lại .web theo đường khác và làm mất script đó (bug/khác biệt
+# phiên bản Reflex 0.9.8). Né lỗi bằng cách: tự gọi `bun run export` NGAY
+# LÚC BUILD (khi package.json chắc chắn đúng), build tĩnh 1 lần cho xong,
+# rồi lúc chạy container CHỈ khởi động backend (--backend-only), không để
+# `reflex run` tự động build lại frontend nữa.
 RUN reflex init --loglevel debug \
  && echo "=== package.json scripts ===" \
- && python3 -c "import json; print(json.dumps(json.load(open('.web/package.json'))['scripts'], indent=2))"
+ && python3 -c "import json; print(json.dumps(json.load(open('.web/package.json'))['scripts'], indent=2))" \
+ && cd .web \
+ && /root/.local/share/reflex/bun/bin/bun run export \
+ && echo "=== .web build output ===" \
+ && find . -maxdepth 3 -iname "*build*" -o -iname "*dist*" | grep -v node_modules | head -50
 
 # Caddy làm reverse-proxy gộp frontend (port 3000 nội bộ) + backend
 # (port 8000 nội bộ) ra DUY NHẤT 1 cổng $PORT mà Render forward traffic vào.
@@ -56,4 +62,4 @@ COPY Caddyfile /app/Caddyfile
 # Lưu ý: build frontend (bun/vite) diễn ra ở LẦN CHẠY ĐẦU TIÊN của container
 # (không phải lúc docker build) nên request đầu tiên sau khi container khởi
 # động / thức dậy (free tier) có thể chậm hơn bình thường vài chục giây.
-CMD ["sh", "-c", "reflex run --env prod --backend-host 0.0.0.0 --backend-port 8000 --loglevel debug & caddy run --config /app/Caddyfile --adapter caddyfile"]
+CMD ["sh", "-c", "reflex run --env prod --backend-only --backend-host 0.0.0.0 --backend-port 8000 --loglevel debug & caddy run --config /app/Caddyfile --adapter caddyfile"]
