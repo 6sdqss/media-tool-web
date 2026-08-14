@@ -48,18 +48,32 @@ ENV PYTHONUNBUFFERED=1
 # để `reflex export` chạy hết phần cài đặt (bỏ qua lỗi ở bước cuối bằng
 # "|| true"), sau đó TỰ gọi react-router build thủ công bằng bun x — lúc
 # này node_modules/.bin/react-router đã tồn tại thật.
-# `reflex export` (CLI export command) chỉ cài gói cơ bản (~1.5s) rồi lỗi
-# ngay ở "bun run export", KHÔNG BAO GIỜ cài devDependencies (react-router,
-# vite...). Chỉ có `reflex run --env prod` (đường chạy đầy đủ) mới cài đủ
-# CẢ 2 vòng gói (main + dev, ~30s tổng) trước khi cũng lỗi ở cùng bước đó.
-# Nên gọi `reflex run --env prod` ở đây (cho lỗi luôn, || true bỏ qua) chỉ
-# để tận dụng side-effect cài đủ node_modules, rồi tự build tay bằng bun x.
-RUN timeout 120 reflex run --env prod --loglevel debug || true
+# Reflex (init/export/run) có lúc BỎ QUA bước cài devDependencies
+# (react-router, vite...) do cơ chế cache nội bộ (project hash) không ổn
+# định — có build cài đủ (~30s, 2 đợt "bun add"), có build chỉ mất 1.4s và
+# thiếu hẳn node_modules/.bin. Danh sách gói chính xác đã thấy lặp lại
+# nhiều lần ở các build cài đủ, nên tự cài THẲNG bằng bun, không phụ thuộc
+# Reflex quyết định có cài hay không.
+RUN reflex init --loglevel debug
 RUN cd .web \
- && echo "=== node_modules/.bin listing (after reflex run attempt) ===" \
+ && BUN=/root/.local/share/reflex/bun/bin/bun \
+ && $BUN add --legacy-peer-deps -d \
+      "@react-router/dev@7.18.2" "postcss@8.5.23" "vite@8.0.16" \
+      "autoprefixer@10.5.4" "@react-router/fs-routes@7.18.2" \
+      "@emotion/react@11.14.0" "postcss-import@16.1.1" \
+ && $BUN add --legacy-peer-deps \
+      "@react-router/node@7.18.2" "rehype-katex@7.0.1" "remark-gfm@4.0.1" \
+      "react-debounce-input@3.3.0" "react-markdown@10.1.0" "sonner@2.0.7" \
+      "universal-cookie@8.1.2" "rehype-unwrap-images@1.0.0" \
+      "react-syntax-highlighter@16.1.1" "@radix-ui/themes@3.3.0" "react@19.2.8" \
+      "@radix-ui/react-accordion@1.2.18" "react-router@7.18.2" \
+      "socket.io-client@4.8.3" "lucide-react@1.26.0" "rehype-raw@7.0.0" \
+      "remark-math@6.0.0" "react-error-boundary@6.1.2" "react-router-dom@7.18.2" \
+      "isbot@5.2.1" "react-helmet@6.1.0" "react-dom@19.2.8" "react-dropzone@15.0.0" \
+ && echo "=== node_modules/.bin listing ===" \
  && ls -la node_modules/.bin/ 2>&1 | head -30 \
  && echo "=== running bun x react-router build ===" \
- && /root/.local/share/reflex/bun/bin/bun x react-router build \
+ && $BUN x react-router build \
  && echo "=== .web build output ===" \
  && find . -maxdepth 3 -iname "*build*" -o -iname "*dist*" | grep -v node_modules | head -50
 
