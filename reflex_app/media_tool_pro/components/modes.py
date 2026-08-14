@@ -12,8 +12,8 @@ from ..backend.batch_state import BatchState
 from ..backend.admin_state import AdminState, PERMISSION_LABELS
 from ..backend.studio_state import StudioState
 from .ui import (
-    batch_progress_panel, batch_queue_view, error_banner,
-    input_report_bar, preset_picker,
+    batch_progress_panel, batch_queue_view, error_banner, error_banner_studio,
+    input_report_bar, preset_picker, stat_pill,
 )
 
 
@@ -198,56 +198,284 @@ def render_local() -> rx.Component:
     )
 
 
-def _slider_row(label: str, value, on_change) -> rx.Component:
-    return rx.vstack(
-        rx.hstack(rx.text(label, size="2"), rx.spacer(), rx.text(f"{value}%", size="2")),
-        rx.slider(default_value=[100], min=0, max=200, value=[value], on_change=on_change, width="100%"),
-        width="100%", spacing="1",
+def _studio_status_badge(status) -> rx.Component:
+    return rx.badge(
+        rx.match(
+            status,
+            ("adjusted", "🎯 Đã chỉnh"),
+            ("rendered", "✅ Đã render"),
+            "📷 Chưa render",
+        ),
+        color_scheme=rx.match(
+            status,
+            ("adjusted", "pink"),
+            ("rendered", "green"),
+            "gray",
+        ),
+    )
+
+
+def _studio_item_card(item: rx.Var) -> rx.Component:
+    return rx.card(
+        rx.vstack(
+            rx.hstack(
+                rx.checkbox(
+                    checked=item["selected"],
+                    on_change=lambda _: StudioState.toggle_select(item["id"]),
+                ),
+                rx.text(item["product"], weight="bold", size="2", no_of_lines=1),
+                rx.text("·", color="gray"),
+                rx.text(item["original_name"], size="2", color="gray", no_of_lines=1),
+                rx.spacer(),
+                _studio_status_badge(item["status"]),
+                rx.cond(
+                    item["is_small"],
+                    rx.badge("⚠ Ảnh nhỏ", color_scheme="pink"),
+                ),
+                width="100%", spacing="2",
+            ),
+            rx.hstack(
+                rx.vstack(
+                    rx.cond(
+                        item["preview_b64"] != "",
+                        rx.image(src=rx.Var.create("data:image/jpeg;base64,") + item["preview_b64"].to(str),
+                                  max_width="220px", border_radius="8px"),
+                        rx.box(rx.text("⚠️ Không có preview", size="1", color="red"),
+                               width="220px", height="140px"),
+                    ),
+                    rx.text(f"📐 {item['source_width']}×{item['source_height']} · "
+                            f"💾 {item['source_size_bytes']}", size="1", color="gray"),
+                    width="35%", spacing="1",
+                ),
+                rx.vstack(
+                    rx.hstack(
+                        rx.text("Scale", size="1"), rx.spacer(),
+                        rx.text(item["scale"].to_string() + "%", size="1", weight="bold"),
+                        width="100%",
+                    ),
+                    rx.slider(min=60, max=200, value=[item["scale"]],
+                              on_change=lambda v: StudioState.set_item_scale(item["id"], v),
+                              width="100%"),
+                    rx.hstack(
+                        rx.text("X", size="1"), rx.spacer(),
+                        rx.text(item["offset_x"].to_string(), size="1", weight="bold"),
+                        width="100%",
+                    ),
+                    rx.slider(min=-100, max=100, value=[item["offset_x"]],
+                              on_change=lambda v: StudioState.set_item_x(item["id"], v),
+                              width="100%"),
+                    rx.hstack(
+                        rx.text("Y", size="1"), rx.spacer(),
+                        rx.text(item["offset_y"].to_string(), size="1", weight="bold"),
+                        width="100%",
+                    ),
+                    rx.slider(min=-100, max=100, value=[item["offset_y"]],
+                              on_change=lambda v: StudioState.set_item_y(item["id"], v),
+                              width="100%"),
+                    rx.hstack(
+                        rx.button("↺ Reset", on_click=StudioState.reset_item(item["id"]),
+                                  size="1", variant="soft"),
+                        rx.button("➖5%", on_click=StudioState.nudge_item(item["id"], -5),
+                                  size="1", variant="soft"),
+                        rx.button("➕5%", on_click=StudioState.nudge_item(item["id"], 5),
+                                  size="1", variant="soft"),
+                        spacing="2",
+                    ),
+                    width="65%", spacing="2",
+                ),
+                width="100%", spacing="3",
+            ),
+            spacing="2", width="100%",
+        ),
+        width="100%",
+    )
+
+
+def _studio_pagination() -> rx.Component:
+    return rx.hstack(
+        rx.button("⏮", on_click=StudioState.go_first_page,
+                  disabled=StudioState.page <= 1, size="2"),
+        rx.button("◀", on_click=StudioState.go_prev_page,
+                  disabled=StudioState.page <= 1, size="2"),
+        rx.text(f"Trang {StudioState.page} / {StudioState.total_pages}", size="2"),
+        rx.button("▶", on_click=StudioState.go_next_page,
+                  disabled=StudioState.page >= StudioState.total_pages, size="2"),
+        rx.button("⏭", on_click=StudioState.go_last_page,
+                  disabled=StudioState.page >= StudioState.total_pages, size="2"),
+        rx.text(f"· {StudioState.filtered_count} ảnh · {StudioState.per_page}/trang",
+                size="1", color="gray"),
+        spacing="3", align="center", wrap="wrap",
     )
 
 
 def render_studio() -> rx.Component:
     return rx.vstack(
-        hero("🎨 Studio — chỉnh sáng/tương phản/độ bão hòa",
-             "Bản rút gọn: upload 1 ảnh → chỉnh → tải kết quả. "
-             "(Xem README_MIGRATION.md — chưa port toàn bộ tính năng bulk/canvas của bản Streamlit gốc.)"),
-        rx.upload(
-            rx.text("Chọn ảnh để chỉnh"),
-            id="studio_upload", multiple=False,
-            border="1px dashed var(--gray-8)", padding="2em", width="100%",
-            on_drop=StudioState.handle_upload(rx.upload_files(upload_id="studio_upload")),
+        hero("🎚 Studio Scale — chỉnh scale/pan hàng loạt",
+             "Nạp batch vừa chạy → lọc/phân trang → chỉnh scale%/X/Y từng ảnh hoặc "
+             "hàng loạt → render → xuất ZIP gộp (ảnh đã chỉnh + ảnh gốc)."),
+        rx.hstack(
+            rx.button("🔄 Nạp batch gần nhất", on_click=StudioState.load_from_last_batch,
+                      color_scheme="violet", size="2"),
+            spacing="2",
         ),
+        error_banner_studio(),
         rx.cond(
-            StudioState.has_image,
-            rx.hstack(
-                rx.vstack(
-                    rx.cond(StudioState.preview_b64 != "",
-                            rx.image(src=f"data:image/jpeg;base64,{StudioState.preview_b64}",
-                                     max_width="480px", border_radius="8px")),
-                    width="50%",
-                ),
-                rx.vstack(
-                    _slider_row("Độ sáng", StudioState.brightness, StudioState.set_brightness),
-                    _slider_row("Tương phản", StudioState.contrast, StudioState.set_contrast),
-                    _slider_row("Độ bão hòa", StudioState.saturation, StudioState.set_saturation),
-                    _slider_row("Độ nét", StudioState.sharpness, StudioState.set_sharpness),
-                    rx.select(["JPEG (.jpg)", "PNG (.png)", "WebP (.webp)"],
-                              value=StudioState.export_format, on_change=StudioState.set_export_format),
+            StudioState.loaded & (StudioState.total_count > 0),
+            rx.vstack(
+                # ── KPI ──
+                rx.hstack(
+                    stat_pill("Batch", StudioState.meta["batch_id"], "gray"),
+                    stat_pill("Tổng", StudioState.total_count, "gray"),
+                    stat_pill("Đang chọn", StudioState.selected_count, "green"),
+                    stat_pill("Ảnh nhỏ", StudioState.small_count, "pink"),
                     rx.hstack(
-                        rx.button("↺ Reset", on_click=StudioState.reset_adjust, variant="soft"),
-                        rx.button("⬇ Tải kết quả", on_click=StudioState.download_result,
-                                  color_scheme="violet"),
-                        spacing="2",
+                        rx.text("Canvas", size="1", color="gray"),
+                        rx.badge(StudioState.canvas_w.to_string() + "×" + StudioState.canvas_h.to_string(),
+                                  color_scheme="violet", variant="soft"),
+                        spacing="1", align="center",
                     ),
-                    width="50%", spacing="3",
+                    spacing="4", wrap="wrap",
+                ),
+                # ── Filters ──
+                rx.card(
+                    rx.vstack(
+                        rx.text("🔍 Bộ lọc", weight="bold", size="2"),
+                        rx.hstack(
+                            rx.input(placeholder="Tìm nhanh (tên, màu...)",
+                                      value=StudioState.search_kw,
+                                      on_change=StudioState.set_search_kw, width="35%"),
+                            rx.select(StudioState.product_names, value=StudioState.filter_product,
+                                      on_change=StudioState.set_filter_product, width="20%"),
+                            rx.select(
+                                ["Tất cả", "Chỉ ảnh đã chọn sửa", "Chỉ ảnh chưa chọn",
+                                 "Chỉ ảnh nhỏ (bị giãn)"],
+                                value=StudioState.filter_status,
+                                on_change=StudioState.set_filter_status, width="25%",
+                            ),
+                            rx.select(["6", "10", "16", "24"],
+                                      value=StudioState.per_page.to_string(),
+                                      on_change=StudioState.set_per_page, width="10%"),
+                            spacing="2", width="100%", wrap="wrap",
+                        ),
+                        width="100%", spacing="2",
+                    ),
+                    width="100%",
+                ),
+                # ── Bulk ops ──
+                rx.card(
+                    rx.vstack(
+                        rx.text("🧩 Thao tác hàng loạt", weight="bold", size="2"),
+                        rx.hstack(
+                            rx.button("☑️ Chọn tất cả (lọc)", on_click=StudioState.select_all_filtered, size="2"),
+                            rx.button("⬜ Bỏ chọn tất cả (lọc)", on_click=StudioState.deselect_all_filtered, size="2"),
+                            rx.button("⚠️ Chọn ảnh nhỏ", on_click=StudioState.select_all_small, size="2"),
+                            rx.button("🧹 Xoá hết chọn", on_click=StudioState.clear_all_selection, size="2"),
+                            spacing="2", wrap="wrap",
+                        ),
+                        rx.hstack(
+                            rx.vstack(
+                                rx.text(f"Scale {StudioState.bulk_scale}%", size="1"),
+                                rx.slider(min=60, max=200, value=[StudioState.bulk_scale],
+                                          on_change=StudioState.set_bulk_scale, width="100%"),
+                                width="33%",
+                            ),
+                            rx.vstack(
+                                rx.text(f"X {StudioState.bulk_x}", size="1"),
+                                rx.slider(min=-100, max=100, value=[StudioState.bulk_x],
+                                          on_change=StudioState.set_bulk_x, width="100%"),
+                                width="33%",
+                            ),
+                            rx.vstack(
+                                rx.text(f"Y {StudioState.bulk_y}", size="1"),
+                                rx.slider(min=-100, max=100, value=[StudioState.bulk_y],
+                                          on_change=StudioState.set_bulk_y, width="100%"),
+                                width="33%",
+                            ),
+                            width="100%", spacing="3",
+                        ),
+                        rx.hstack(
+                            rx.button("⚡ Áp dụng trang hiện tại", on_click=StudioState.apply_bulk_current_page,
+                                      color_scheme="violet", size="2"),
+                            rx.button("⚡⚡ Áp dụng toàn bộ (lọc)", on_click=StudioState.apply_bulk_all_filtered,
+                                      color_scheme="violet", size="2"),
+                            spacing="2",
+                        ),
+                        width="100%", spacing="3",
+                    ),
+                    width="100%",
+                ),
+                # ── Item grid + pagination ──
+                _studio_pagination(),
+                rx.vstack(
+                    rx.foreach(StudioState.page_items, _studio_item_card),
+                    width="100%", spacing="3",
+                ),
+                _studio_pagination(),
+                # ── Export panel ──
+                rx.card(
+                    rx.vstack(
+                        rx.heading("🚀 Xuất file & tải về", size="4"),
+                        rx.text("Bước 1: Render ảnh đã chọn → Bước 2: Tạo ZIP gộp → Bước 3: Tải về.",
+                                size="2", color="gray"),
+                        rx.hstack(
+                            rx.button(
+                                f"🎨 Render {StudioState.selected_count} ảnh đã chọn",
+                                on_click=StudioState.render_selected, color_scheme="violet", size="3",
+                                disabled=(StudioState.selected_count == 0) | StudioState.is_rendering,
+                                loading=StudioState.is_rendering,
+                            ),
+                            rx.button(
+                                "📦 Tạo ZIP gộp (đã chỉnh + gốc)",
+                                on_click=StudioState.export_zip, color_scheme="violet", size="3",
+                                loading=StudioState.is_exporting,
+                            ),
+                            spacing="3", wrap="wrap",
+                        ),
+                        rx.cond(
+                            StudioState.is_rendering,
+                            rx.vstack(
+                                rx.progress(value=StudioState.render_progress_pct, max=100, width="100%"),
+                                rx.text(f"▶ {StudioState.render_current_name}", size="1", color="gray"),
+                                width="100%", spacing="1",
+                            ),
+                        ),
+                        rx.cond(StudioState.render_done_msg != "",
+                                rx.callout(StudioState.render_done_msg, color_scheme="green")),
+                        rx.cond(
+                            StudioState.render_errors.length() > 0,
+                            rx.box(
+                                rx.foreach(StudioState.render_errors,
+                                           lambda e: rx.text(f"• {e}", size="1", color="red")),
+                                max_height="150px", overflow_y="auto", width="100%",
+                            ),
+                        ),
+                        rx.cond(StudioState.export_msg != "",
+                                rx.callout(StudioState.export_msg, color_scheme="green")),
+                        rx.hstack(
+                            rx.button(
+                                rx.cond(StudioState.zip_orig_size != "",
+                                        f"⬇️ ZIP Gốc ({StudioState.zip_orig_size})", "⬇️ ZIP Gốc"),
+                                on_click=StudioState.download_zip_original, size="2",
+                                disabled=StudioState.zip_orig_path == "",
+                            ),
+                            rx.button(
+                                rx.cond(StudioState.zip_merged_size != "",
+                                        f"⬇️ ZIP Gộp — Đã chỉnh ({StudioState.zip_merged_size})",
+                                        "⬇️ ZIP Gộp — Đã chỉnh"),
+                                on_click=StudioState.download_zip_merged, color_scheme="violet", size="2",
+                                disabled=StudioState.zip_merged_path == "",
+                            ),
+                            spacing="3", wrap="wrap",
+                        ),
+                        width="100%", spacing="3",
+                    ),
+                    width="100%",
                 ),
                 width="100%", spacing="4",
             ),
         ),
-        rx.cond(StudioState.error_msg != "", rx.callout(StudioState.error_msg, color_scheme="red")),
         spacing="3", width="100%", padding="1em",
     )
-
 
 def render_guide() -> rx.Component:
     return rx.vstack(

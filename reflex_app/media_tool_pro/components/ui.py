@@ -9,6 +9,7 @@ import reflex as rx
 
 from ..backend.auth_state import AuthState
 from ..backend.batch_state import BatchState
+from ..backend.studio_state import StudioState
 
 
 def status_color(status: str) -> str:
@@ -77,9 +78,13 @@ NAV_ITEMS = [
 
 def sidebar_nav() -> rx.Component:
     def nav_btn(key: str, label: str) -> rx.Component:
+        on_click = (
+            [BatchState.set_active_mode(key), StudioState.load_from_last_batch]
+            if key == "studio" else BatchState.set_active_mode(key)
+        )
         return rx.button(
             label,
-            on_click=BatchState.set_active_mode(key),
+            on_click=on_click,
             variant=rx.cond(BatchState.active_mode == key, "solid", "ghost"),
             color_scheme=rx.cond(BatchState.active_mode == key, "violet", "gray"),
             width="100%",
@@ -243,4 +248,11 @@ def error_banner() -> rx.Component:
     return rx.cond(
         BatchState.batch_error_msg != "",
         rx.callout(BatchState.batch_error_msg, color_scheme="red", icon="triangle_alert"),
+    )
+
+
+def error_banner_studio() -> rx.Component:
+    return rx.cond(
+        StudioState.error_msg != "",
+        rx.callout(StudioState.error_msg, color_scheme="red", icon="triangle_alert"),
     )

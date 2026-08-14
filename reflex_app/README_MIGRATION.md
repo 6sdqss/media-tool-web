@@ -82,14 +82,51 @@ nguyên cấu trúc thư mục** `repo_root/reflex_app/media_tool_pro/...`.
 - [x] Dark/Light mode — dùng `rx.color_mode` built-in của Reflex (native,
       không cần CSS thủ công như `ui/theme.py` cũ).
 
-### Port dạng rút gọn (hoạt động thật, KHÔNG phải giả lập, nhưng thiếu tính năng so với bản gốc)
-- [~] **Studio (mode_adjust.py, 824 dòng UI Streamlit rất nặng: canvas
-      preview, pagination, bulk theo cả batch, nhiều slider CSS custom)**.
-      Bản Reflex hiện tại: upload 1 ảnh → chỉnh brightness/contrast/
-      saturation/sharpness bằng `PIL.ImageEnhance` → xem trước → tải kết quả.
-      Dùng lại `core.imaging.EXPORT_FORMATS`. **Còn thiếu**: chỉnh hàng loạt
-      ảnh trong 1 batch vừa chạy xong, preview theo đúng canvas kích thước
-      export của preset, pagination, undo/redo per-item.
+### Đã port đầy đủ tính năng (đợt cập nhật sau)
+- [x] **Studio (mode_adjust.py, 824 dòng UI Streamlit)** — port lại hoàn
+      toàn sang `backend/studio_state.py` + `components/modes.py::render_studio`,
+      dùng lại các hàm thật của `utils.py` (compat shim, KHÔNG sửa):
+      `estimate_default_scale_for_size`, `build_live_preview_b64`,
+      `resize_to_multi_sizes`, `merge_final_with_adjusted`, `make_zip`,
+      `open_zip_for_download`, `readable_file_size`, `get_size_label`,
+      `apply_name_template`, `add_to_history`, `EXPORT_FORMATS`.
+      Tính năng: nạp batch gần nhất (nút "🔄 Nạp batch gần nhất" ở tab
+      Studio, tự nạp khi chuyển tab); bộ lọc (từ khoá/sản phẩm/trạng thái);
+      pagination 6/10/16/24 mỗi trang; card từng ảnh với slider
+      Scale/X/Y + nút Reset/±5% + checkbox chọn + badge trạng thái
+      (chưa render / đã render / đã chỉnh) + cảnh báo ảnh nhỏ; bulk-ops
+      (chọn tất cả/bỏ chọn/chọn ảnh nhỏ/xoá chọn, áp scale/X/Y hàng loạt
+      cho trang hiện tại hoặc toàn bộ kết quả lọc); render hàng loạt ảnh
+      đã chọn qua `@rx.event(background=True)` (polling progress giống
+      `batch_state.py::_poll_loop`), mỗi ảnh dùng đúng scale% riêng của nó;
+      xuất ZIP gộp (final + adjusted, ưu tiên bản đã chỉnh) và tải ZIP gốc
+      / ZIP gộp; KPI batch.
+
+      **Khác biệt có chủ đích so với gọi y nguyên các hàm trong
+      mode_adjust.py** (lý do nêu chi tiết ở đầu `studio_state.py`):
+      1. `mode_adjust.py` gọi `resize_to_multi_sizes(...)` với 5 đối số vị
+         trí trong khi hàm thật trong `utils.py` chỉ nhận 4 — gọi y nguyên
+         sẽ luôn `TypeError`. Studio Reflex gọi đúng chữ ký thật.
+      2. `mode_adjust.py` gọi `estimate_default_scale_for_size(width,
+         height, tw, th)` (4 số) nhưng chữ ký thật nhận `source_path` (mở
+         ảnh bằng PIL) — Studio Reflex gọi đúng chữ ký thật.
+      3. `resize_to_multi_sizes` không tự tạo thư mục con theo
+         `group_name` như `core/batch.py` (`final/size_label/group/name.ext`).
+         Studio Reflex vẫn dùng nguyên hàm này để resize (không viết lại
+         pixel-engine), rồi tự di chuyển file kết quả vào đúng vị trí lồng
+         thư mục khớp với cây `final/` để `merge_final_with_adjusted` so
+         khớp đường dẫn tương đối chính xác.
+      4. **Pan (offset X/Y) không áp dụng vào ảnh export thật** — đúng như
+         hành vi thật của bản gốc: `core.imaging.apply_size`/
+         `resize_letterbox` không có tham số dịch chuyển pixel nào, nên cả
+         bản Streamlit gốc (dù sửa lỗi gọi hàm) cũng chỉ dùng offset cho
+         CSS transform ở live-preview, không áp dụng khi resize/export.
+         Studio Reflex giữ đúng giới hạn này — slider X/Y vẫn lưu và hiển
+         thị được nhưng không đổi pixel khi render (không giả vờ hỗ trợ).
+      5. Nguồn "batch vừa chạy" lấy từ `core.state.batch()`/`items()` (v11)
+         thay vì `st.session_state["last_batch_manifest/cfg/meta"]` —
+         key đó thuộc schema TaskItem cũ hơn không còn tồn tại trong
+         `core/batch.py` hiện tại của repo (xem comment đầu file).
 
 ### Chưa làm / cần theo dõi thêm (follow-up)
 - [ ] **Đa người dùng đồng thời thực sự độc lập**: vì `core/batch.py` và
@@ -110,6 +147,14 @@ nguyên cấu trúc thư mục** `repo_root/reflex_app/media_tool_pro/...`.
       ở tầng Python/component-tree. Việc `reflex run` thực tế build frontend
       (Bun/React) cần chạy ở máy có internet đầy đủ — rất nên làm bước này
       trước khi deploy thật.
+- [ ] Studio: chưa test qua trình duyệt thật (cùng lý do không có `bun.sh`
+      trong sandbox) — mới verify ở tầng `app._compile_page('index')` (không
+      lỗi import/syntax/Var). Nên chạy `reflex run` thật + click thử luồng
+      Render → Export ZIP trên máy có internet trước khi bàn giao.
+- [ ] Studio chưa có: preset save/load riêng cho Studio (bản gốc cũng không
+      có tính năng này — mode_adjust.py chỉ dùng preset của batch gốc), và
+      chưa hỗ trợ pan pixel thật (xem mục giải thích ở trên — bản gốc cũng
+      vậy).
 - [ ] Chưa test tải file rất lớn qua `rx.upload` (giới hạn size mặc định của
       Reflex có thể khác Streamlit `file_uploader` — nên set
       `max_upload_size` nếu cần cho phép ZIP lớn).
