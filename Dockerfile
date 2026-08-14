@@ -33,7 +33,12 @@ ENV API_URL=${API_URL}
 COPY Caddyfile /app/Caddyfile
 
 # Render tự inject $PORT lúc runtime, Caddyfile đọc {$PORT} nên không cần EXPOSE cố định.
+# QUAN TRỌNG: ở --env prod, Reflex bắt buộc frontend+backend chạy CHUNG 1
+# cổng (đã gặp lỗi "In prod mode, frontend and backend must run on the same
+# port." khi thử tách --frontend-port riêng khỏi --backend-port). Vì vậy
+# CHỈ truyền --backend-port, không truyền --frontend-port; Caddy proxy toàn
+# bộ traffic về đúng 1 cổng nội bộ đó (xem Caddyfile).
 # Lưu ý: build frontend (bun/vite) diễn ra ở LẦN CHẠY ĐẦU TIÊN của container
 # (không phải lúc docker build) nên request đầu tiên sau khi container khởi
 # động / thức dậy (free tier) có thể chậm hơn bình thường vài chục giây.
-CMD ["sh", "-c", "reflex run --env prod --backend-host 0.0.0.0 --backend-port 8000 --frontend-port 3000 --loglevel debug & caddy run --config /app/Caddyfile --adapter caddyfile"]
+CMD ["sh", "-c", "reflex run --env prod --backend-host 0.0.0.0 --backend-port 8000 --loglevel debug & caddy run --config /app/Caddyfile --adapter caddyfile"]

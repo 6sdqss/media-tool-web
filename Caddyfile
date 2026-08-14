@@ -1,13 +1,6 @@
-# Caddyfile — gộp frontend (reflex run, port 3000 nội bộ) + backend API
-# (port 8000 nội bộ) ra 1 cổng duy nhất (Render forward traffic vào $PORT).
+# Caddyfile — proxy toàn bộ traffic tới cổng nội bộ 8000, nơi Reflex --env
+# prod phục vụ CẢ frontend lẫn backend chung 1 cổng (yêu cầu bắt buộc của
+# Reflex ở prod mode — tách 2 cổng riêng sẽ báo lỗi lúc chạy).
 :{$PORT}
 
-handle /_event/* {
-    reverse_proxy 127.0.0.1:8000
-}
-handle /ping {
-    reverse_proxy 127.0.0.1:8000
-}
-handle {
-    reverse_proxy 127.0.0.1:3000
-}
+reverse_proxy 127.0.0.1:8000
