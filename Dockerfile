@@ -55,6 +55,13 @@ ENV PYTHONUNBUFFERED=1
 # nhiều lần ở các build cài đủ, nên tự cài THẲNG bằng bun, không phụ thuộc
 # Reflex quyết định có cài hay không.
 RUN reflex init --loglevel debug
+# `reflex export` tự "Compile pages" (Python -> app/root.tsx và các file
+# react khác) TRƯỚC khi cài gói/build — bước compile này KHÔNG xảy ra nếu
+# chỉ gọi `reflex init`. Thiếu nó thì `react-router build` báo "Could not
+# find a root route module in app/root.tsx". Nên chạy `reflex export` cho
+# nó tự compile + cài gói (bỏ qua crash ở bước cuối "bun run export"),
+# RỒI mới tự cài bù devDependencies còn thiếu + tự build bằng bun x.
+RUN reflex export --frontend-only --no-zip --loglevel debug || true
 RUN cd .web \
  && BUN=/root/.local/share/reflex/bun/bin/bun \
  && $BUN add --legacy-peer-deps -d \
