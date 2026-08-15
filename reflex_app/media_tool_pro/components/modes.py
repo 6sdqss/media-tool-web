@@ -15,62 +15,109 @@ from .ui import (
     batch_progress_panel, batch_queue_view, error_banner, error_banner_studio,
     input_report_bar, preset_picker, run_outputs_panel, stat_pill,
 )
+from . import bauhaus as bh
 
 
-def hero(title: str, subtitle: str) -> rx.Component:
+_HERO_COLORS = [bh.YELLOW, bh.BLUE, bh.RED]
+_hero_counter = {"i": 0}
+
+
+def hero(title: str, subtitle: str, accent: str | None = None) -> rx.Component:
+    """Section màu khối kiểu Bauhaus, xoay vòng 3 màu chính nếu không chỉ
+    định — kèm hình khối trang trí góc trên-phải (đối lập điểm nhấn)."""
+    if accent is None:
+        accent = _HERO_COLORS[_hero_counter["i"] % 3]
+        _hero_counter["i"] += 1
+    text_color = bh.WHITE if accent in (bh.BLUE, bh.RED) else bh.INK
     return rx.box(
-        rx.heading(title, size="6", color="var(--gray-12)"),
-        rx.text(subtitle, color="var(--gray-11)", size="2", margin_top="0.35em"),
+        rx.box(
+            width="90px", height="90px", border_radius="9999px",
+            bg=(bh.WHITE if accent != bh.WHITE else bh.INK),
+            opacity="0.18",
+            position="absolute", top="-30px", right="-20px",
+        ),
+        rx.box(
+            width="46px", height="46px",
+            bg=(bh.WHITE if accent != bh.WHITE else bh.INK),
+            opacity="0.18", transform="rotate(20deg)",
+            position="absolute", bottom="-14px", right="60px",
+        ),
+        rx.heading(title.upper(), size="6", color=text_color, font_font_weight="900",
+                    letter_spacing="-0.01em", position="relative"),
+        rx.text(subtitle, color=text_color, size="2", margin_top="0.35em",
+                 font_weight="500", position="relative"),
         padding="1.4em 1.7em",
-        bg="linear-gradient(135deg, var(--violet-3) 0%, var(--pink-3) 55%, var(--violet-2) 100%)",
-        border="1px solid var(--violet-5)",
-        border_radius="14px",
-        box_shadow="0 2px 10px rgba(124, 58, 237, 0.08)",
+        bg=accent,
+        border=f"4px solid {bh.INK}",
+        box_shadow=bh.hard_shadow(8),
         margin_bottom="1.1em",
         width="100%",
+        position="relative", overflow="hidden",
     )
 
 
 def render_home() -> rx.Component:
+    _PRESET_ACCENTS = [bh.RED, bh.BLUE, bh.YELLOW]
+
+    def _preset_card(p, i) -> rx.Component:
+        accent = rx.match(i % 3, (0, bh.RED), (1, bh.BLUE), (2, bh.YELLOW), bh.RED)
+        return rx.box(
+            rx.box(width="12px", height="12px", bg=accent, border_radius="9999px",
+                    position="absolute", top="-6px", right="-6px"),
+            rx.vstack(
+                rx.text(p["name"], font_weight="900", size="2", text_transform="uppercase"),
+                rx.text(p["description"], size="1", color=bh.INK),
+                rx.text(f"📐 {p['sizes']}", size="1", font_weight="700"),
+                rx.text(f"Q={p['quality']} · {p['format']}", size="1", color=bh.INK),
+                spacing="1", align_items="start",
+            ),
+            position="relative", padding="1em",
+            bg=bh.WHITE, border=f"3px solid {bh.INK}", box_shadow=bh.hard_shadow(5),
+            style={"transition": "transform 0.15s ease-out",
+                   "_hover": {"transform": "translateY(-3px)"}},
+        )
+
     return rx.vstack(
         hero("Image Resizer Pro",
              "Batch image processing tự động — dán/upload → chọn preset → START."),
-        rx.heading("Preset có sẵn", size="4", margin_top="1em"),
+        rx.heading("PRESET CÓ SẴN", size="4", margin_top="1em", font_font_weight="900",
+                    letter_spacing="-0.01em"),
         rx.grid(
-            rx.foreach(
-                BatchState.preset_options,
-                lambda p: rx.card(
-                    rx.vstack(
-                        rx.text(p["name"], weight="bold"),
-                        rx.text(p["description"], size="1", color="gray"),
-                        rx.text(f"📐 {p['sizes']}", size="1"),
-                        rx.text(f"Q={p['quality']} · {p['format']}", size="1"),
-                        spacing="1", align_items="start",
-                    ),
-                ),
-            ),
-            columns="3", spacing="3", width="100%",
+            rx.foreach(BatchState.preset_options, _preset_card),
+            columns="3", spacing="4", width="100%",
         ),
-        rx.heading("Bắt đầu nhanh", size="4", margin_top="1em"),
+        rx.heading("BẮT ĐẦU NHANH", size="4", margin_top="1.2em", font_font_weight="900"),
         rx.hstack(
-            rx.button("💻 Local", on_click=BatchState.set_active_mode("local"), size="3"),
-            rx.button("🌐 Drive", on_click=BatchState.set_active_mode("drive"), size="3"),
-            rx.button("🛒 Web/TGDD", on_click=BatchState.set_active_mode("web"), size="3"),
+            rx.button("💻 LOCAL", on_click=BatchState.set_active_mode("local"), size="3",
+                      **bh.bauhaus_button(bg=bh.BLUE, shadow_px=4)),
+            rx.button("🌐 DRIVE", on_click=BatchState.set_active_mode("drive"), size="3",
+                      **bh.bauhaus_button(bg=bh.YELLOW, color=bh.INK, shadow_px=4)),
+            rx.button("🛒 WEB/TGDD", on_click=BatchState.set_active_mode("web"), size="3",
+                      **bh.bauhaus_button(bg=bh.RED, shadow_px=4)),
             spacing="3",
         ),
         rx.cond(
             BatchState.history.length() > 0,
             rx.vstack(
-                rx.heading("Lịch sử batch", size="4", margin_top="1em"),
-                rx.foreach(
-                    BatchState.history,
-                    lambda h: rx.hstack(
-                        rx.badge(h["mode"], color_scheme="violet"),
-                        rx.text(f"{h['success']}/{h['total']}", size="2"),
-                        rx.text(f"{h['duration']}s", size="1", color="gray"),
-                        rx.text(h["at"], size="1", color="gray"),
-                        spacing="3",
+                rx.heading("LỊCH SỬ BATCH", size="4", margin_top="1.2em", font_font_weight="900"),
+                rx.box(
+                    rx.foreach(
+                        BatchState.history,
+                        lambda h: rx.hstack(
+                            rx.box(
+                                rx.text(h["mode"], size="1", font_font_weight="900",
+                                         text_transform="uppercase"),
+                                bg=bh.BLUE, color=bh.WHITE, border=f"2px solid {bh.INK}",
+                                padding="0.15em 0.6em",
+                            ),
+                            rx.text(f"{h['success']}/{h['total']}", size="2", font_weight="700"),
+                            rx.text(f"{h['duration']}s", size="1", color=bh.INK),
+                            rx.text(h["at"], size="1", color=bh.INK),
+                            spacing="3", align="center",
+                            padding="0.4em 0", border_bottom=f"1px solid {bh.MUTED}",
+                        ),
                     ),
+                    width="100%",
                 ),
                 width="100%", align_items="start",
             ),
@@ -112,14 +159,11 @@ def render_web() -> rx.Component:
         ),
         input_report_bar(),
         rx.hstack(
-            rx.button("🚀 START — scrape & xử lý", on_click=BatchState.start_web_batch,
-                      color_scheme="violet", size="3",
-                      disabled=BatchState.is_batch_running,
-                      bg="linear-gradient(135deg,#7c3aed,#ec4899)", color="white",
-                      box_shadow="0 4px 14px rgba(124,58,237,0.35)",
-                      style={"_hover": {"opacity": 0.92}, "transition": "all 0.15s ease"}),
+            rx.button("🚀 START — SCRAPE & XỬ LÝ", on_click=BatchState.start_web_batch,
+                      size="3", disabled=BatchState.is_batch_running,
+                      **bh.bauhaus_button(bg=bh.RED, shadow_px=4)),
             rx.cond(BatchState.is_batch_running,
-                    rx.button("⏹ Huỷ", on_click=BatchState.cancel_batch, size="3", color_scheme="red")),
+                    rx.button("⏹ HUỶ", on_click=BatchState.cancel_batch, size="3", **bh.bauhaus_button(bg=bh.INK, shadow_px=4))),
             spacing="3",
         ),
         error_banner(),
@@ -151,14 +195,11 @@ def render_drive() -> rx.Component:
         ),
         input_report_bar(),
         rx.hstack(
-            rx.button("🚀 START — tải & xử lý", on_click=BatchState.start_drive_batch,
-                      color_scheme="violet", size="3",
-                      disabled=BatchState.is_batch_running,
-                      bg="linear-gradient(135deg,#7c3aed,#ec4899)", color="white",
-                      box_shadow="0 4px 14px rgba(124,58,237,0.35)",
-                      style={"_hover": {"opacity": 0.92}, "transition": "all 0.15s ease"}),
+            rx.button("🚀 START — TẢI & XỬ LÝ", on_click=BatchState.start_drive_batch,
+                      size="3", disabled=BatchState.is_batch_running,
+                      **bh.bauhaus_button(bg=bh.RED, shadow_px=4)),
             rx.cond(BatchState.is_batch_running,
-                    rx.button("⏹ Huỷ", on_click=BatchState.cancel_batch, size="3", color_scheme="red")),
+                    rx.button("⏹ HUỶ", on_click=BatchState.cancel_batch, size="3", **bh.bauhaus_button(bg=bh.INK, shadow_px=4))),
             spacing="3",
         ),
         error_banner(),
@@ -194,14 +235,11 @@ def render_local() -> rx.Component:
             ),
         ),
         rx.hstack(
-            rx.button("🚀 START — xử lý & tải kết quả", on_click=BatchState.start_local_batch,
-                      color_scheme="violet", size="3",
-                      disabled=BatchState.is_batch_running,
-                      bg="linear-gradient(135deg,#7c3aed,#ec4899)", color="white",
-                      box_shadow="0 4px 14px rgba(124,58,237,0.35)",
-                      style={"_hover": {"opacity": 0.92}, "transition": "all 0.15s ease"}),
+            rx.button("🚀 START — XỬ LÝ & TẢI KẾT QUẢ", on_click=BatchState.start_local_batch,
+                      size="3", disabled=BatchState.is_batch_running,
+                      **bh.bauhaus_button(bg=bh.RED, shadow_px=4)),
             rx.cond(BatchState.is_batch_running,
-                    rx.button("⏹ Huỷ", on_click=BatchState.cancel_batch, size="3", color_scheme="red")),
+                    rx.button("⏹ HUỶ", on_click=BatchState.cancel_batch, size="3", **bh.bauhaus_button(bg=bh.INK, shadow_px=4))),
             spacing="3",
         ),
         error_banner(),
@@ -334,7 +372,7 @@ def render_studio() -> rx.Component:
              "hàng loạt → render → xuất ZIP gộp (ảnh đã chỉnh + ảnh gốc)."),
         rx.hstack(
             rx.button("🔄 Nạp batch gần nhất", on_click=StudioState.load_from_last_batch,
-                      color_scheme="violet", size="2"),
+                      color_scheme="red", size="2"),
             spacing="2",
         ),
         error_banner_studio(),
@@ -350,7 +388,7 @@ def render_studio() -> rx.Component:
                     rx.hstack(
                         rx.text("Canvas", size="1", color="gray"),
                         rx.badge(StudioState.canvas_w.to_string() + "×" + StudioState.canvas_h.to_string(),
-                                  color_scheme="violet", variant="soft"),
+                                  color_scheme="red", variant="soft"),
                         spacing="1", align="center",
                     ),
                     spacing="4", wrap="wrap",
@@ -427,9 +465,9 @@ def render_studio() -> rx.Component:
                         ),
                         rx.hstack(
                             rx.button("⚡ Áp dụng trang hiện tại", on_click=StudioState.apply_bulk_current_page,
-                                      color_scheme="violet", size="2"),
+                                      color_scheme="red", size="2"),
                             rx.button("⚡⚡ Áp dụng toàn bộ (lọc)", on_click=StudioState.apply_bulk_all_filtered,
-                                      color_scheme="violet", size="2"),
+                                      color_scheme="red", size="2"),
                             spacing="2",
                         ),
                         width="100%", spacing="3",
@@ -453,13 +491,13 @@ def render_studio() -> rx.Component:
                         rx.hstack(
                             rx.button(
                                 f"🎨 Render {StudioState.selected_count} ảnh đã chọn",
-                                on_click=StudioState.render_selected, color_scheme="violet", size="3",
+                                on_click=StudioState.render_selected, color_scheme="red", size="3",
                                 disabled=(StudioState.selected_count == 0) | StudioState.is_rendering,
                                 loading=StudioState.is_rendering,
                             ),
                             rx.button(
                                 "📦 Tạo ZIP gộp (đã chỉnh + gốc)",
-                                on_click=StudioState.export_zip, color_scheme="violet", size="3",
+                                on_click=StudioState.export_zip, color_scheme="red", size="3",
                                 loading=StudioState.is_exporting,
                             ),
                             spacing="3", wrap="wrap",
@@ -495,7 +533,7 @@ def render_studio() -> rx.Component:
                                 rx.cond(StudioState.zip_merged_size != "",
                                         f"⬇️ ZIP Gộp — Đã chỉnh ({StudioState.zip_merged_size})",
                                         "⬇️ ZIP Gộp — Đã chỉnh"),
-                                on_click=StudioState.download_zip_merged, color_scheme="violet", size="2",
+                                on_click=StudioState.download_zip_merged, color_scheme="red", size="2",
                                 disabled=StudioState.zip_merged_path == "",
                             ),
                             spacing="3", wrap="wrap",
@@ -595,7 +633,7 @@ def render_admin() -> rx.Component:
                     rx.input(placeholder="Ghi chú", value=AdminState.edit_note,
                               on_change=AdminState.set_edit_note, width="100%"),
                     rx.hstack(
-                        rx.button("💾 Lưu", on_click=AdminState.save_edit, color_scheme="violet"),
+                        rx.button("💾 Lưu", on_click=AdminState.save_edit, color_scheme="red"),
                         rx.button("🗑 Xoá", on_click=AdminState.delete_edit_user, color_scheme="red",
                                   variant="soft"),
                         spacing="2",
