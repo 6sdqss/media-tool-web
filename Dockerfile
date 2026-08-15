@@ -62,6 +62,10 @@ RUN reflex init --loglevel debug
 # nó tự compile + cài gói (bỏ qua crash ở bước cuối "bun run export"),
 # RỒI mới tự cài bù devDependencies còn thiếu + tự build bằng bun x.
 RUN reflex export --frontend-only --no-zip --loglevel debug || true
+RUN echo "=== .web top-level after export attempt ===" \
+ && find .web -maxdepth 2 -not -path "*/node_modules*" \
+ && echo "=== react-router.config.js ===" \
+ && cat .web/react-router.config.js 2>&1 || echo "MISSING react-router.config.js"
 RUN cd .web \
  && BUN=/root/.local/share/reflex/bun/bin/bun \
  && $BUN add --legacy-peer-deps -d \
