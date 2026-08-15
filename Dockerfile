@@ -62,6 +62,12 @@ ENV PYTHONUNBUFFERED=1
 # (.web chưa tồn tại), giống hệt luồng đã từng compile thành công (12 route
 # files) khi trước đây gọi qua `reflex run --env prod` từ trạng thái sạch.
 RUN reflex export --frontend-only --no-zip --loglevel debug || true
+RUN echo "=== reflex_base template app/ dir (nguồn copy vào .web/app) ===" \
+ && find /usr/local/lib/python3.12/site-packages/reflex_base/.templates/web/app -type f 2>&1 \
+ && echo "=== .web/app full listing ===" \
+ && find .web/app -type f 2>&1 \
+ && echo "=== .web/app/routes.js content ===" \
+ && cat .web/app/routes.js 2>&1
 RUN echo "=== .web top-level after export attempt ===" \
  && find .web -maxdepth 2 -not -path "*/node_modules*" \
  && echo "=== react-router.config.js ===" \
