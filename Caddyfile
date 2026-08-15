@@ -2,15 +2,21 @@
 # `reflex run --backend-only` lúc container start (chỉ backend/API/WS ở
 # cổng nội bộ 8000). Caddy: phục vụ file tĩnh đã build sẵn ở
 # .web/build/client trực tiếp, CHỈ proxy các route API/WebSocket của Reflex
-# về :8000. Route không khớp file tĩnh nào -> fallback về index.html (SPA).
+# về :8000. Dùng handle{}/handle{} tách biệt hẳn 2 nhánh để "encode gzip"
+# (chỉ áp cho file tĩnh) không đụng vào response 101 Switching Protocols
+# của WebSocket qua reverse_proxy (gzip encode trên response upgrade có
+# thể phá hỏng handshake WebSocket).
 :{$PORT}
 
-# Các route backend của Reflex (event/websocket, upload, health check...).
 @backend path /ping /_event* /_upload* /auth-codespace /_health /_all_routes*
-reverse_proxy @backend 127.0.0.1:8000
 
-# Phần còn lại: file tĩnh đã build (root.jsx/routes -> build/client/*).
-root * /app/reflex_app/.web/build/client
-encode gzip
-try_files {path} /index.html
-file_server
+handle @backend {
+	reverse_proxy 127.0.0.1:8000
+}
+
+handle {
+	root * /app/reflex_app/.web/build/client
+	encode gzip
+	try_files {path} /index.html
+	file_server
+}
