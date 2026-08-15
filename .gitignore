@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.web/
+reflex.lock/
+reflex_app/users_db.json
+reflex_app/user_presets.json
+.env

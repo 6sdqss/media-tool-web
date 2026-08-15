@@ -42,15 +42,49 @@ if str(REPO_ROOT) not in sys.path:
 
 # auth.py (DB_FILE="users_db.json") và core/presets.py (user_presets.json)
 # dùng ĐƯỜNG DẪN TƯƠNG ĐỐI — giả định cwd = thư mục gốc repo (đúng khi chạy
-# `streamlit run app.py` từ repo root). `reflex run` lại chạy với cwd =
-# reflex_app/, nên PHẢI chdir về repo root ở đây — nếu không auth.py sẽ tạo
-# 1 users_db.json MỚI (rỗng, chỉ có admin mặc định) trong reflex_app/ thay vì
-# dùng file thật ở repo root. KHÔNG được bỏ bước này.
-if Path.cwd().resolve() != REPO_ROOT:
+# `streamlit run app.py` từ repo root). `reflex run`/`reflex export` lại
+# chạy với cwd = reflex_app/.
+#
+# [FIX] TRƯỚC ĐÂY dùng os.chdir(REPO_ROOT) ở đây để "giả lập" cwd đúng cho
+# auth.py. Nhưng os.chdir() đổi cwd cho TOÀN BỘ process — kể cả trình biên
+# dịch frontend của Reflex (`reflex export`/`reflex run --env prod`), vốn
+# cũng tự tính đường dẫn ghi file .web/... dựa trên cwd TẠI THỜI ĐIỂM ghi.
+# st_compat.py bị import (lười) NGAY GIỮA lúc Reflex đang compile trang
+# (khi nó import state module -> import core/... -> import st_compat) nên
+# chdir() nhảy cwd từ reflex_app/ sang repo root NGAY GIỮA một lượt biên
+# dịch: các file Reflex tính đường dẫn ghi TRƯỚC thời điểm chdir (ví dụ
+# .web/app/root.jsx, .web/react-router.config.js) vẫn resolve theo cwd cũ,
+# nhưng 1 số hàm nội bộ của Reflex gọi Path.cwd() LẠI ngay lúc ghi, nên bị
+# lệch sang repo root — kết quả: các trang khác ghi đúng chỗ, còn
+# app/root.jsx bị "ghi" ở 1 đường dẫn tương đối không còn đúng nữa và biến
+# mất khỏi .web/app/. Hậu quả: `react-router build` báo lỗi "Could not find
+# a root route module in the app directory as app/root.tsx" — lỗi này từng
+# tưởng là bug của Reflex nhưng thực chất là do os.chdir() ở đây.
+#
+# Thay vì đổi cwd toàn cục, ta chỉ cần đảm bảo "users_db.json" (và
+# "user_presets.json") RESOLVE ĐÚNG dù cwd là gì — bằng cách tạo symlink
+# trỏ về file thật ở repo root, đặt ngay tại cwd hiện tại (reflex_app/).
+# open("users_db.json", ...) qua symlink đọc/ghi xuyên suốt tới file thật ở
+# repo root, không cần chdir.
+def _ensure_relative_data_file_symlink(filename: str) -> None:
+    real_path = REPO_ROOT / filename
+    link_path = Path.cwd() / filename
+    if link_path.resolve() == real_path.resolve():
+        return  # đã đúng chỗ rồi (vd cwd == REPO_ROOT)
     try:
-        os.chdir(REPO_ROOT)
+        if link_path.is_symlink() or link_path.exists():
+            if link_path.is_symlink() and link_path.resolve() == real_path.resolve():
+                return
+            link_path.unlink()
+        if not real_path.exists():
+            real_path.touch()
+        link_path.symlink_to(real_path)
     except OSError:
         pass
+
+
+for _fname in ("users_db.json", "user_presets.json"):
+    _ensure_relative_data_file_symlink(_fname)
 
 
 class _Secrets(dict):
