@@ -83,8 +83,8 @@ RUN cd .web \
       "isbot@5.2.1" "react-helmet@6.1.0" "react-dom@19.2.8" "react-dropzone@15.0.0" \
  && echo "=== node_modules/.bin listing ===" \
  && ls -la node_modules/.bin/ 2>&1 | head -30 \
- && echo "=== running bun x react-router build ===" \
- && $BUN x react-router build \
+ && echo "=== running bun x vite build (không dùng react-router CLI vì .web/app không có root.tsx, Reflex dùng routes.js kiểu khác) ===" \
+ && $BUN x vite build \
  && echo "=== .web build output ===" \
  && find . -maxdepth 3 -iname "*build*" -o -iname "*dist*" | grep -v node_modules | head -50
 
