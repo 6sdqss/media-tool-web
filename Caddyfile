@@ -1,6 +1,16 @@
-# Caddyfile — proxy toàn bộ traffic tới cổng nội bộ 8000, nơi Reflex --env
-# prod phục vụ CẢ frontend lẫn backend chung 1 cổng (yêu cầu bắt buộc của
-# Reflex ở prod mode — tách 2 cổng riêng sẽ báo lỗi lúc chạy).
+# Caddyfile — Reflex build tĩnh (frontend) lúc `docker build`, chạy
+# `reflex run --backend-only` lúc container start (chỉ backend/API/WS ở
+# cổng nội bộ 8000). Caddy: phục vụ file tĩnh đã build sẵn ở
+# .web/build/client trực tiếp, CHỈ proxy các route API/WebSocket của Reflex
+# về :8000. Route không khớp file tĩnh nào -> fallback về index.html (SPA).
 :{$PORT}
 
-reverse_proxy 127.0.0.1:8000
+# Các route backend của Reflex (event/websocket, upload, health check...).
+@backend path /ping /_event* /_upload* /auth-codespace /_health /_all_routes*
+reverse_proxy @backend 127.0.0.1:8000
+
+# Phần còn lại: file tĩnh đã build (root.jsx/routes -> build/client/*).
+root * /app/reflex_app/.web/build/client
+encode gzip
+try_files {path} /index.html
+file_server
