@@ -1,7 +1,3 @@
-# Dockerfile — build & chạy Media Tool Pro (Reflex) cho Render.
-# Build context PHẢI là repo root vì app cần import core/, auth.py,
-# cleanup.py, modes/, users_db.json ở root (xem
-# reflex_app/media_tool_pro/backend/st_compat.py).
 FROM python:3.12-slim
 
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
@@ -19,13 +15,14 @@ ARG API_URL
 ENV API_URL=${API_URL}
 ENV PYTHONUNBUFFERED=1
 
-# QUAN TRỌNG: KHÔNG "|| true" ở đây nữa — lỗi export bị nuốt mất bấy lâu
-# nay chính là nguyên nhân .web/app/root.jsx không được ghi ra (compile_app_root
-# trong reflex/compiler/compiler.py bị exception nhưng RUN step vẫn "pass"
-# nhờ || true, để lại .web/app chỉ có template gốc -> react-router build
-# báo thiếu app/root.tsx). Để lộ traceback thật ra build log.
-RUN reflex export --frontend-only --no-zip --loglevel debug
-RUN echo "=== .web/app sau export (phải có root.jsx) ===" && find .web/app -type f
+# DEBUG: chạy export, KHÔNG để build fail sớm — in ra package.json thật +
+# nội dung .web/app để biết chính xác "export" script bị mất ở bước nào.
+RUN reflex export --frontend-only --no-zip --loglevel debug; \
+    echo "EXPORT_EXIT_CODE=$?"; \
+    echo "=== .web/package.json ==="; cat .web/package.json 2>&1; \
+    echo "=== .web/app files ==="; find .web/app -type f 2>&1; \
+    echo "=== root package.json (persisted) ==="; cat package.json 2>&1 || echo "(no root package.json)"; \
+    echo "=== reflex.lock dir ==="; find reflex.lock -type f 2>&1 || echo "(no reflex.lock)"
 
 COPY Caddyfile /app/Caddyfile
 
