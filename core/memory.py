@@ -136,6 +136,27 @@ def disk_free_mb(path: Path | str = "/tmp") -> float:
         return -1.0
 
 
+MIN_FREE_RAM_MB_TO_START = 180  # RAM tối thiểu để CHO PHÉP bắt đầu batch mới
+
+
+def memory_ok_for_batch() -> tuple[bool, str]:
+    """Kiểm tra RAM TRƯỚC khi cho phép bắt đầu batch mới — tránh việc bắt
+    đầu rồi giữa chừng bị Render OOM-kill (mất cả batch + session).
+    Trả (ok, message cảnh báo cho user nếu not ok)."""
+    mb = available_memory_mb()
+    if mb < 0:
+        return True, ""  # không đo được → không chặn (ví dụ máy dev)
+    if mb < MIN_FREE_RAM_MB_TO_START:
+        return False, (
+            f"RAM server chỉ còn ~{mb:.0f}MB — chưa đủ an toàn để bắt đầu "
+            f"batch mới (cần ≥{MIN_FREE_RAM_MB_TO_START}MB). Server free-tier "
+            f"512MB dễ bị quá tải khi có nhiều ảnh nặng cùng lúc. Vui lòng đợi "
+            f"~30-60s cho batch/RAM trước giải phóng rồi thử lại, hoặc giảm số "
+            f"lượng link/ảnh mỗi lần chạy."
+        )
+    return True, ""
+
+
 def disk_ok_for_batch(workspace: Path | str = "/tmp") -> tuple[bool, str]:
     """Trả (ok, message). Nếu không ok, message giải thích cho user."""
     free = disk_free_mb(workspace)

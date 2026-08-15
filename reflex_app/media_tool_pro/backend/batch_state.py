@@ -25,7 +25,7 @@ from core.batch import BatchManager, DownloadResult, Workspace
 from core.download import (
     download_drive_file, drive_name_scrape, list_drive_folder,
 )
-from core.memory import disk_ok_for_batch
+from core.memory import disk_ok_for_batch, memory_ok_for_batch
 from core.types import (
     BatchState as CoreBatchState, ErrorType, ItemState, Preset, SizeSpec, TaskItem, new_id,
 )
@@ -40,8 +40,11 @@ _log = logging.getLogger("reflex.batch_state")
 
 # Số file Drive xử lý mỗi "đợt" trong 1 lượt chạy — hạn chế gọi Drive API
 # dồn dập, tránh bị Google tạm khoá quyền truy cập khi paste rất nhiều link.
-DRIVE_CHUNK_SIZE = 20
-DRIVE_CHUNK_DELAY_S = 3.0
+# Giảm 20→10: mỗi đợt xử lý ít file hơn để đỉnh RAM thấp hơn khi có nhiều
+# ảnh nặng cùng lúc (Render free/starter chỉ 512MB). Bù lại bằng nghỉ ngắn
+# hơn giữa đợt (3→2s) để tổng thời gian không tăng nhiều.
+DRIVE_CHUNK_SIZE = 10
+DRIVE_CHUNK_DELAY_S = 2.0
 
 
 def _build_local_items(pending: list[tuple[str, bytes]]) -> list[TaskItem]:
@@ -515,6 +518,11 @@ class BatchState(rx.State):
                 sstate.release_batch_lock()
                 self.batch_error_msg = msg
                 return
+            ok, msg = memory_ok_for_batch()
+            if not ok:
+                sstate.release_batch_lock()
+                self.batch_error_msg = msg
+                return
             preset = self._current_preset_obj()
             self.batch_error_msg = ""
             self.web_scrape_log = []
@@ -592,6 +600,11 @@ class BatchState(rx.State):
                 self.batch_error_msg = "Batch khác đang chạy."
                 return
             ok, msg = disk_ok_for_batch()
+            if not ok:
+                sstate.release_batch_lock()
+                self.batch_error_msg = msg
+                return
+            ok, msg = memory_ok_for_batch()
             if not ok:
                 sstate.release_batch_lock()
                 self.batch_error_msg = msg
@@ -678,6 +691,11 @@ class BatchState(rx.State):
                 self.batch_error_msg = "Batch khác đang chạy."
                 return
             ok, msg = disk_ok_for_batch()
+            if not ok:
+                sstate.release_batch_lock()
+                self.batch_error_msg = msg
+                return
+            ok, msg = memory_ok_for_batch()
             if not ok:
                 sstate.release_batch_lock()
                 self.batch_error_msg = msg
