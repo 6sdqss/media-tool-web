@@ -20,11 +20,17 @@ def _login_page() -> rx.Component:
             rx.vstack(
                 rx.box(
                     rx.text("M", weight="bold", size="7", color="white"),
-                    bg="linear-gradient(135deg,#7c3aed,#ec4899)",
-                    border_radius="14px", width="56px", height="56px",
+                    bg="linear-gradient(135deg,#7c3aed,#ec4899 60%,#f59e0b)",
+                    border_radius="16px", width="60px", height="60px",
                     display="flex", align_items="center", justify_content="center",
+                    box_shadow="0 8px 24px rgba(124, 58, 237, 0.35)",
                 ),
-                rx.heading("Media Tool Pro", size="6"),
+                rx.heading(
+                    "Media Tool Pro", size="6",
+                    background="linear-gradient(90deg,#7c3aed,#ec4899)",
+                    background_clip="text",
+                    style={"-webkit-background-clip": "text", "-webkit-text-fill-color": "transparent"},
+                ),
                 rx.text("v11 · Batch image processing (Reflex UI)", size="2", color="gray"),
                 rx.tabs.root(
                     rx.tabs.list(
@@ -70,9 +76,15 @@ def _login_page() -> rx.Component:
                 ),
                 spacing="4", align_items="center", width="340px",
             ),
-            padding="2.5em",
+            padding="2.6em",
+            border_radius="20px",
+            box_shadow="0 20px 60px rgba(0,0,0,0.12)",
+            border="1px solid var(--gray-4)",
         ),
         min_height="100vh", width="100%",
+        bg="radial-gradient(circle at 20% 20%, var(--violet-3) 0%, transparent 45%), "
+           "radial-gradient(circle at 80% 80%, var(--pink-3) 0%, transparent 45%), "
+           "var(--gray-1)",
     )
 
 

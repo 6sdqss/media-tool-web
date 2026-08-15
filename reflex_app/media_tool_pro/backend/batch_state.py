@@ -234,6 +234,12 @@ class BatchState(rx.State):
     custom_mode: str = "letterbox"    # "letterbox" | "crop_1000" | "keep"
     custom_msg: str = ""
 
+    # ── scale % thủ công (giống slider "Scale %" 60-200 ở bản Streamlit cũ) ──
+    # Override scale_pct của TẤT CẢ preset đã chọn cho lượt chạy này — dùng
+    # khi muốn phóng to/thu nhỏ chủ động thêm ngoài phần auto-upscale trong
+    # core/imaging.py. 100 = giữ nguyên như preset gốc.
+    run_scale_pct: int = 100
+
 
     # ── inputs ──
     web_links: str = ""
@@ -421,14 +427,25 @@ class BatchState(rx.State):
         return p
 
     def _selected_preset_objs(self) -> list:
-        """Danh sách Preset đã tick — chạy tuần tự, mỗi preset ra 1 zip riêng."""
+        """Danh sách Preset đã tick — chạy tuần tự, mỗi preset ra 1 zip riêng.
+        Áp dụng run_scale_pct (slider Scale % thủ công) đè lên scale_pct gốc
+        của từng preset nếu người dùng chỉnh khác 100%."""
         names = self.selected_presets or [self.selected_preset]
         objs = [presets_mod.get(n) for n in names]
         objs = [p for p in objs if p is not None]
         if not objs:
             fallback = self._current_preset_obj()
             objs = [fallback] if fallback else []
+        if self.run_scale_pct != 100:
+            objs = [dataclasses.replace(p, scale_pct=self.run_scale_pct) for p in objs]
         return objs
+
+    def set_run_scale_pct(self, value: list[float]) -> None:
+        v = int(value[0]) if isinstance(value, list) else int(value)
+        self.run_scale_pct = max(60, min(200, v))
+
+    def reset_run_scale_pct(self) -> None:
+        self.run_scale_pct = 100
 
     async def _run_all_presets(self, mode: str, items_factory, download_fn):
         """

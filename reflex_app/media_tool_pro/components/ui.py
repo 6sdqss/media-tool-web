@@ -39,13 +39,20 @@ def top_header() -> rx.Component:
         rx.hstack(
             rx.box(
                 rx.text("M", weight="bold", size="5", color="white"),
-                bg="linear-gradient(135deg,#7c3aed,#ec4899)",
-                border_radius="10px",
-                width="38px", height="38px",
+                bg="linear-gradient(135deg,#7c3aed,#ec4899 60%,#f59e0b)",
+                border_radius="12px",
+                width="42px", height="42px",
                 display="flex", align_items="center", justify_content="center",
+                box_shadow="0 4px 14px rgba(124, 58, 237, 0.35)",
             ),
             rx.vstack(
-                rx.heading("Media Tool Pro", size="4"),
+                rx.heading(
+                    "Media Tool Pro",
+                    size="4",
+                    background="linear-gradient(90deg,#7c3aed,#ec4899)",
+                    background_clip="text",
+                    style={"-webkit-background-clip": "text", "-webkit-text-fill-color": "transparent"},
+                ),
                 rx.text("Batch image processing · Reflex UI", size="1", color="gray"),
                 spacing="0",
             ),
@@ -54,15 +61,19 @@ def top_header() -> rx.Component:
         rx.spacer(),
         rx.hstack(
             rx.color_mode.button(),
-            rx.badge(AuthState.user_username, variant="soft", color_scheme="violet"),
-            rx.badge(AuthState.user_role, variant="outline"),
+            rx.badge(AuthState.user_username, variant="soft", color_scheme="violet",
+                      radius="full", size="2"),
+            rx.badge(AuthState.user_role, variant="outline", radius="full", size="2"),
             rx.button("Đăng xuất", on_click=AuthState.do_logout, variant="soft",
-                      color_scheme="red", size="2"),
+                      color_scheme="red", size="2", radius="full"),
             spacing="3", align="center",
         ),
-        width="100%", padding="1em 1.5em",
+        width="100%", padding="0.85em 1.6em",
+        bg="var(--color-panel-solid)",
         border_bottom="1px solid var(--gray-5)",
+        box_shadow="0 1px 8px rgba(0,0,0,0.04)",
         align="center",
+        position="sticky", top="0", z_index="100",
     )
 
 
@@ -82,14 +93,22 @@ def sidebar_nav() -> rx.Component:
             [BatchState.set_active_mode(key), StudioState.load_from_last_batch]
             if key == "studio" else BatchState.set_active_mode(key)
         )
+        is_active = BatchState.active_mode == key
         return rx.button(
             label,
             on_click=on_click,
-            variant=rx.cond(BatchState.active_mode == key, "solid", "ghost"),
-            color_scheme=rx.cond(BatchState.active_mode == key, "violet", "gray"),
+            variant="ghost",
             width="100%",
             justify="start",
             size="3",
+            radius="large",
+            color=rx.cond(is_active, "white", "var(--gray-12)"),
+            bg=rx.cond(is_active, "linear-gradient(135deg,#7c3aed,#ec4899)", "transparent"),
+            box_shadow=rx.cond(is_active, "0 3px 10px rgba(124,58,237,0.3)", "none"),
+            style={"transition": "all 0.15s ease", "_hover": {
+                "background": rx.cond(is_active, "linear-gradient(135deg,#7c3aed,#ec4899)", "var(--gray-4)"),
+                "transform": "translateX(2px)",
+            }},
         )
 
     items = [nav_btn(k, v) for k, v in NAV_ITEMS]
@@ -97,34 +116,35 @@ def sidebar_nav() -> rx.Component:
         *items,
         rx.cond(
             AuthState.is_admin,
-            rx.button(
-                "🔐 Admin",
-                on_click=BatchState.set_active_mode("admin"),
-                variant=rx.cond(BatchState.active_mode == "admin", "solid", "ghost"),
-                color_scheme=rx.cond(BatchState.active_mode == "admin", "violet", "gray"),
-                width="100%", justify="start", size="3",
-            ),
+            nav_btn("admin", "🔐 Admin"),
         ),
         rx.divider(),
-        rx.text("Cài đặt", size="1", weight="bold", color="gray"),
-        rx.hstack(rx.text("⚡ One-Click", size="2"),
-                  rx.spacer(),
-                  rx.switch(checked=BatchState.one_click_mode,
-                            on_change=BatchState.set_one_click_mode),
-                  width="100%"),
-        rx.hstack(rx.text("📦 Auto ZIP", size="2"),
-                  rx.spacer(),
-                  rx.switch(checked=BatchState.auto_zip, on_change=BatchState.set_auto_zip),
-                  width="100%"),
-        rx.hstack(rx.text("📊 Auto Report", size="2"),
-                  rx.spacer(),
-                  rx.switch(checked=BatchState.auto_report, on_change=BatchState.set_auto_report),
-                  width="100%"),
+        rx.text("CÀI ĐẶT", size="1", weight="bold", color="gray", letter_spacing="0.05em"),
+        rx.box(
+            rx.hstack(rx.text("⚡ One-Click", size="2"),
+                      rx.spacer(),
+                      rx.switch(checked=BatchState.one_click_mode,
+                                on_change=BatchState.set_one_click_mode, color_scheme="violet"),
+                      width="100%"),
+            rx.hstack(rx.text("📦 Auto ZIP", size="2"),
+                      rx.spacer(),
+                      rx.switch(checked=BatchState.auto_zip, on_change=BatchState.set_auto_zip,
+                                color_scheme="violet"),
+                      width="100%", margin_top="0.5em"),
+            rx.hstack(rx.text("📊 Auto Report", size="2"),
+                      rx.spacer(),
+                      rx.switch(checked=BatchState.auto_report, on_change=BatchState.set_auto_report,
+                                color_scheme="violet"),
+                      width="100%", margin_top="0.5em"),
+            width="100%", padding="0.7em 0.6em",
+            bg="var(--gray-2)", border_radius="10px", border="1px solid var(--gray-4)",
+        ),
         rx.divider(),
         rx.button("🧹 Dọn workspace cũ", on_click=BatchState.cleanup_workspace,
-                  width="100%", variant="soft", size="2"),
+                  width="100%", variant="soft", size="2", radius="large"),
         rx.cond(BatchState.cleanup_msg != "", rx.text(BatchState.cleanup_msg, size="1", color="green")),
-        spacing="2", width="220px", padding="1em",
+        spacing="2", width="228px", padding="1.1em",
+        bg="var(--color-panel-solid)",
         border_right="1px solid var(--gray-5)",
         min_height="100%",
         align_items="stretch",
@@ -165,8 +185,44 @@ def preset_picker() -> rx.Component:
             width="100%", max_height="220px", overflow_y="auto",
             border="1px solid var(--gray-5)", border_radius="8px", padding="0.25em 0.5em",
         ),
+        scale_slider(),
         custom_size_form(),
         width="100%", spacing="2",
+    )
+
+
+def scale_slider() -> rx.Component:
+    """Thanh 'Scale %' thủ công (60-200%, mặc định 100) — cho phép người
+    dùng chủ động phóng to/thu nhỏ thêm mọi ảnh trong lượt chạy này, tương
+    tự slider Scale % ở bản Streamlit cũ (mode_adjust.py). Độc lập với phần
+    tự-phóng-to giới hạn 1.6x trong core/imaging.py — cái đó chỉ bù cho ảnh
+    quá nhỏ so với khung, còn thanh này là điều chỉnh chủ động của người dùng."""
+    return rx.box(
+        rx.hstack(
+            rx.text("🔍 Scale % (phóng/thu ảnh thủ công)", size="2", weight="medium"),
+            rx.spacer(),
+            rx.badge(BatchState.run_scale_pct.to_string(), "%",
+                      color_scheme="violet", variant="soft"),
+            rx.button("Reset", on_click=BatchState.reset_run_scale_pct,
+                      size="1", variant="ghost"),
+            width="100%", align="center",
+        ),
+        rx.slider(
+            min=60, max=200, step=5,
+            value=[BatchState.run_scale_pct],
+            on_change=BatchState.set_run_scale_pct,
+            color_scheme="violet", width="100%", margin_top="0.4em",
+        ),
+        rx.hstack(
+            rx.text("60%", size="1", color="gray"),
+            rx.spacer(),
+            rx.text("100%", size="1", color="gray"),
+            rx.spacer(),
+            rx.text("200%", size="1", color="gray"),
+            width="100%",
+        ),
+        width="100%", padding="0.7em 0.9em", margin_top="0.3em",
+        bg="var(--violet-2)", border="1px solid var(--violet-5)", border_radius="10px",
     )
 
 
