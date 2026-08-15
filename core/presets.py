@@ -59,6 +59,27 @@ def _builtin() -> list[Preset]:
             description="Post vuông cho social media.",
         ),
         Preset(
+            name="TGDD 1020x570",
+            sizes=[SizeSpec(1020, 570, "letterbox")],
+            quality=92, export_format="JPEG (.jpg)",
+            template="{name}_{nn}", is_builtin=True,
+            description="Banner ngang 1020×570 (tỉ lệ ~16:9).",
+        ),
+        Preset(
+            name="Vuông Crop 1200x1200",
+            sizes=[SizeSpec(1200, 1200, "crop_1000")],
+            quality=90, export_format="JPEG (.jpg)",
+            template="{name}_{nn}", is_builtin=True,
+            description="Crop giữa thành ảnh vuông 1200×1200 (nét hơn Square 1000).",
+        ),
+        Preset(
+            name="Letterbox 1000x1000",
+            sizes=[SizeSpec(1000, 1000, "letterbox")],
+            quality=92, export_format="JPEG (.jpg)",
+            template="{name}_{nn}", is_builtin=True,
+            description="Giữ nguyên toàn bộ ảnh trong khung vuông 1000×1000 (nền trắng, không crop).",
+        ),
+        Preset(
             name="Keep original",
             sizes=[SizeSpec(0, 0, "keep")],
             quality=95, export_format="JPEG (.jpg)",

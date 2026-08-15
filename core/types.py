@@ -107,7 +107,8 @@ class SizeSpec:
 
     def label(self) -> str:
         if self.mode == "crop_1000":
-            return "1000x1000_crop"
+            side = self.width or 1000
+            return f"{side}x{side}_crop"
         if self.mode == "keep":
             return "keep_ratio"
         return f"{self.width}x{self.height}"

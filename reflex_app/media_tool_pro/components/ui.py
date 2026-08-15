@@ -132,21 +132,80 @@ def sidebar_nav() -> rx.Component:
 
 
 def preset_picker() -> rx.Component:
+    """Multi-select preset — tick nhiều preset để 1 ảnh xuất ra NHIỀU
+    kích thước khác nhau trong cùng 1 lần chạy (mỗi preset ra 1 zip riêng)."""
     return rx.vstack(
-        rx.text("Preset", weight="bold", size="3"),
-        rx.select(
-            BatchState.preset_names,
-            value=BatchState.selected_preset,
-            on_change=BatchState.set_selected_preset,
+        rx.hstack(
+            rx.text("Preset (tick để chạy nhiều size cùng lúc)", weight="bold", size="3"),
+            rx.spacer(),
+            rx.badge(
+                BatchState.selected_presets.length().to_string(), " đã chọn",
+                color_scheme="violet", variant="soft",
+            ),
+            width="100%", align="center",
         ),
-        rx.foreach(
-            BatchState.preset_options,
-            lambda p: rx.cond(
-                p["name"] == BatchState.selected_preset,
-                rx.text(f"{p['description']} · {p['sizes']}", size="1", color="gray"),
+        rx.box(
+            rx.foreach(
+                BatchState.preset_options,
+                lambda p: rx.hstack(
+                    rx.checkbox(
+                        checked=BatchState.selected_presets.contains(p["name"]),
+                        on_change=lambda _: BatchState.toggle_preset_selected(p["name"]),
+                    ),
+                    rx.vstack(
+                        rx.text(p["name"], size="2", weight="medium"),
+                        rx.text(f"{p['description']} · {p['sizes']}", size="1", color="gray"),
+                        spacing="0", align="start",
+                    ),
+                    spacing="2", align="center", width="100%",
+                    padding="0.35em 0.25em",
+                    border_bottom="1px solid var(--gray-4)",
+                ),
+            ),
+            width="100%", max_height="220px", overflow_y="auto",
+            border="1px solid var(--gray-5)", border_radius="8px", padding="0.25em 0.5em",
+        ),
+        custom_size_form(),
+        width="100%", spacing="2",
+    )
+
+
+def custom_size_form() -> rx.Component:
+    """Cho phép tự thêm 1 preset kích thước tuỳ ý (WxH + kiểu resize)."""
+    return rx.accordion.root(
+        rx.accordion.item(
+            header="➕ Tự thêm size mới",
+            content=rx.vstack(
+                rx.hstack(
+                    rx.input(placeholder="Tên (tuỳ chọn)", value=BatchState.custom_name,
+                              on_change=BatchState.set_custom_name, size="2", width="40%"),
+                    rx.input(placeholder="Width", value=BatchState.custom_width,
+                              on_change=BatchState.set_custom_width, size="2", width="20%",
+                              type="number"),
+                    rx.input(placeholder="Height", value=BatchState.custom_height,
+                              on_change=BatchState.set_custom_height, size="2", width="20%",
+                              type="number"),
+                    spacing="2", width="100%",
+                ),
+                rx.select(
+                    ["letterbox", "crop_1000", "keep"],
+                    value=BatchState.custom_mode,
+                    on_change=BatchState.set_custom_mode,
+                    size="2",
+                ),
+                rx.text(
+                    "letterbox = giữ nguyên tỉ lệ, thêm nền trắng · "
+                    "crop_1000 = crop giữa thành hình vuông · keep = không resize",
+                    size="1", color="gray",
+                ),
+                rx.button("Thêm preset", on_click=BatchState.add_custom_preset,
+                          size="2", variant="soft", color_scheme="violet"),
+                rx.cond(BatchState.custom_msg != "",
+                        rx.text(BatchState.custom_msg, size="1", color="gray")),
+                spacing="2", width="100%", padding_top="0.5em",
             ),
         ),
-        width="100%",
+        collapsible=True, width="100%",
     )
 
 
@@ -212,6 +271,40 @@ def batch_progress_panel() -> rx.Component:
                     ),
                 ),
                 spacing="3", width="100%",
+            ),
+            width="100%",
+        ),
+    )
+
+
+def run_outputs_panel() -> rx.Component:
+    """Danh sách zip/report của TỪNG preset (hoặc từng đợt-chunk drive) đã
+    xong trong lượt chạy vừa rồi — quan trọng khi chạy multi-preset vì nút
+    "Tải ZIP" ở batch_progress_panel chỉ giữ file của lượt CUỐI CÙNG."""
+    return rx.cond(
+        BatchState.run_outputs.length() > 1,
+        rx.card(
+            rx.vstack(
+                rx.text("Kết quả theo từng preset", weight="bold", size="3"),
+                rx.foreach(
+                    BatchState.run_outputs,
+                    lambda o, i: rx.hstack(
+                        rx.vstack(
+                            rx.text(o["label"], size="2", weight="medium"),
+                            rx.text(f"{o['success']}/{o['total']} ảnh thành công",
+                                    size="1", color="gray"),
+                            spacing="0", align="start",
+                        ),
+                        rx.spacer(),
+                        rx.button("⬇ ZIP", on_click=BatchState.download_output_zip(i),
+                                  size="1", variant="soft"),
+                        rx.button("⬇ CSV", on_click=BatchState.download_output_report(i),
+                                  size="1", variant="soft"),
+                        width="100%", align="center", spacing="2",
+                        padding="0.35em 0.25em", border_bottom="1px solid var(--gray-4)",
+                    ),
+                ),
+                width="100%", spacing="2",
             ),
             width="100%",
         ),

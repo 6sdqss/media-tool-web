@@ -13,18 +13,20 @@ from ..backend.admin_state import AdminState, PERMISSION_LABELS
 from ..backend.studio_state import StudioState
 from .ui import (
     batch_progress_panel, batch_queue_view, error_banner, error_banner_studio,
-    input_report_bar, preset_picker, stat_pill,
+    input_report_bar, preset_picker, run_outputs_panel, stat_pill,
 )
 
 
 def hero(title: str, subtitle: str) -> rx.Component:
     return rx.box(
-        rx.heading(title, size="6"),
-        rx.text(subtitle, color="gray", size="2", margin_top="0.25em"),
-        padding="1.2em 1.5em",
-        bg="linear-gradient(135deg, var(--violet-3), var(--pink-3))",
-        border_radius="12px",
-        margin_bottom="1em",
+        rx.heading(title, size="6", color="var(--gray-12)"),
+        rx.text(subtitle, color="var(--gray-11)", size="2", margin_top="0.35em"),
+        padding="1.4em 1.7em",
+        bg="linear-gradient(135deg, var(--violet-3) 0%, var(--pink-3) 55%, var(--violet-2) 100%)",
+        border="1px solid var(--violet-5)",
+        border_radius="14px",
+        box_shadow="0 2px 10px rgba(124, 58, 237, 0.08)",
+        margin_bottom="1.1em",
         width="100%",
     )
 
@@ -127,6 +129,7 @@ def render_web() -> rx.Component:
             ),
         ),
         batch_progress_panel(),
+        run_outputs_panel(),
         batch_queue_view(),
         spacing="3", width="100%", padding="1em",
     )
@@ -154,6 +157,7 @@ def render_drive() -> rx.Component:
         ),
         error_banner(),
         batch_progress_panel(),
+        run_outputs_panel(),
         batch_queue_view(),
         spacing="3", width="100%", padding="1em",
     )
@@ -193,6 +197,7 @@ def render_local() -> rx.Component:
         ),
         error_banner(),
         batch_progress_panel(),
+        run_outputs_panel(),
         batch_queue_view(),
         spacing="3", width="100%", padding="1em",
     )
@@ -287,6 +292,10 @@ def _studio_item_card(item: rx.Var) -> rx.Component:
             ),
             spacing="2", width="100%",
         ),
+        border=rx.cond(item["selected"], "1.5px solid var(--violet-8)", "1px solid var(--gray-4)"),
+        border_radius="12px",
+        box_shadow="0 1px 3px rgba(0,0,0,0.04)",
+        bg=rx.cond(item["selected"], "var(--violet-2)", "var(--gray-1)"),
         width="100%",
     )
 
@@ -294,17 +303,18 @@ def _studio_item_card(item: rx.Var) -> rx.Component:
 def _studio_pagination() -> rx.Component:
     return rx.hstack(
         rx.button("⏮", on_click=StudioState.go_first_page,
-                  disabled=StudioState.page <= 1, size="2"),
+                  disabled=StudioState.page <= 1, size="2", variant="soft"),
         rx.button("◀", on_click=StudioState.go_prev_page,
-                  disabled=StudioState.page <= 1, size="2"),
-        rx.text(f"Trang {StudioState.page} / {StudioState.total_pages}", size="2"),
+                  disabled=StudioState.page <= 1, size="2", variant="soft"),
+        rx.text(f"Trang {StudioState.page} / {StudioState.total_pages}", size="2", weight="medium"),
         rx.button("▶", on_click=StudioState.go_next_page,
-                  disabled=StudioState.page >= StudioState.total_pages, size="2"),
+                  disabled=StudioState.page >= StudioState.total_pages, size="2", variant="soft"),
         rx.button("⏭", on_click=StudioState.go_last_page,
-                  disabled=StudioState.page >= StudioState.total_pages, size="2"),
+                  disabled=StudioState.page >= StudioState.total_pages, size="2", variant="soft"),
         rx.text(f"· {StudioState.filtered_count} ảnh · {StudioState.per_page}/trang",
                 size="1", color="gray"),
-        spacing="3", align="center", wrap="wrap",
+        spacing="3", align="center", justify="center", wrap="wrap",
+        padding="0.5em", bg="var(--gray-2)", border_radius="999px",
     )
 
 
@@ -335,11 +345,20 @@ def render_studio() -> rx.Component:
                         spacing="1", align="center",
                     ),
                     spacing="4", wrap="wrap",
+                    padding="0.75em 1em",
+                    bg="var(--gray-2)",
+                    border="1px solid var(--gray-4)",
+                    border_radius="10px",
+                    width="100%",
                 ),
                 # ── Filters ──
                 rx.card(
                     rx.vstack(
-                        rx.text("🔍 Bộ lọc", weight="bold", size="2"),
+                        rx.hstack(
+                            rx.box(width="4px", height="18px", bg="var(--violet-9)", border_radius="2px"),
+                            rx.text("Bộ lọc", weight="bold", size="2"),
+                            spacing="2", align="center",
+                        ),
                         rx.hstack(
                             rx.input(placeholder="Tìm nhanh (tên, màu...)",
                                       value=StudioState.search_kw,
@@ -359,12 +378,16 @@ def render_studio() -> rx.Component:
                         ),
                         width="100%", spacing="2",
                     ),
-                    width="100%",
+                    border="1px solid var(--gray-4)", border_radius="12px", box_shadow="0 1px 4px rgba(0,0,0,0.05)", width="100%",
                 ),
                 # ── Bulk ops ──
                 rx.card(
                     rx.vstack(
-                        rx.text("🧩 Thao tác hàng loạt", weight="bold", size="2"),
+                        rx.hstack(
+                            rx.box(width="4px", height="18px", bg="var(--pink-9)", border_radius="2px"),
+                            rx.text("Thao tác hàng loạt", weight="bold", size="2"),
+                            spacing="2", align="center",
+                        ),
                         rx.hstack(
                             rx.button("☑️ Chọn tất cả (lọc)", on_click=StudioState.select_all_filtered, size="2"),
                             rx.button("⬜ Bỏ chọn tất cả (lọc)", on_click=StudioState.deselect_all_filtered, size="2"),
@@ -402,6 +425,7 @@ def render_studio() -> rx.Component:
                         ),
                         width="100%", spacing="3",
                     ),
+                    border="1px solid var(--gray-4)", border_radius="12px", box_shadow="0 1px 4px rgba(0,0,0,0.05)", bg="var(--violet-2)",
                     width="100%",
                 ),
                 # ── Item grid + pagination ──
@@ -414,7 +438,7 @@ def render_studio() -> rx.Component:
                 # ── Export panel ──
                 rx.card(
                     rx.vstack(
-                        rx.heading("🚀 Xuất file & tải về", size="4"),
+                        rx.heading("🚀 Xuất file & tải về", size="4", color="var(--violet-11)"),
                         rx.text("Bước 1: Render ảnh đã chọn → Bước 2: Tạo ZIP gộp → Bước 3: Tải về.",
                                 size="2", color="gray"),
                         rx.hstack(
@@ -469,6 +493,7 @@ def render_studio() -> rx.Component:
                         ),
                         width="100%", spacing="3",
                     ),
+                    border="1px solid var(--gray-4)", border_radius="12px", box_shadow="0 1px 4px rgba(0,0,0,0.05)", bg="linear-gradient(135deg, var(--violet-2), var(--pink-2))",
                     width="100%",
                 ),
                 width="100%", spacing="4",
