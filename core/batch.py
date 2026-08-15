@@ -303,7 +303,7 @@ class BatchManager:
                     # GC dày hơn khi RAM đang căng (container nhỏ như Render
                     # free 512MB) để tránh tích luỹ rác giữa các item, gây
                     # OOM-kill làm mất cả batch đang chạy.
-                    gc_every = 3 if memory.memory_pressure_high() else 8
+                    gc_every = 1 if memory.memory_pressure_high() else 5
                     if done_counter % gc_every == 0:
                         gc.collect()
 

@@ -20,12 +20,16 @@ MAX_SOURCE_FILE_BYTES = 60 * 1024 * 1024  # 60MB / file input
 MIN_FREE_DISK_MB = 150                  # Không bắt đầu batch nếu còn < 150MB
 DISK_WARNING_MB = 300                   # Cảnh báo user ở mức này
 
-DOWNLOAD_WORKERS_DEFAULT = 4
-DOWNLOAD_WORKERS_MAX = 6
+# Render free/starter chỉ có 512MB RAM cho CẢ container (Reflex + Caddy +
+# Python + libs đã chiếm ~250-300MB baseline) → siết concurrency mặc định
+# thấp hơn nhiều so với trước (từng để 4/3, gây OOM-kill status 137 dù đã
+# có throttle theo cgroup). An toàn > tốc độ trên gói RAM nhỏ.
+DOWNLOAD_WORKERS_DEFAULT = 2
+DOWNLOAD_WORKERS_MAX = 3
 
 # Resize là CPU + RAM heavy → worker thấp hơn download nhiều
-RESIZE_WORKERS_DEFAULT = 3
-RESIZE_WORKERS_MAX = 4
+RESIZE_WORKERS_DEFAULT = 2
+RESIZE_WORKERS_MAX = 2
 
 
 # ══════════════════════════════════════════════════════════════
@@ -110,11 +114,12 @@ def available_memory_mb() -> float:
 
 
 def memory_pressure_high() -> bool:
-    """True nếu RAM còn ≤ 300MB — phải giảm concurrency.
-    Ngưỡng nâng từ 250→300MB vì trên Render free (cgroup 512MB) cần biên an
-    toàn lớn hơn để tránh bị OOM-kill làm mất toàn bộ batch/session đang chạy."""
+    """True nếu RAM còn ≤ 350MB — phải giảm concurrency xuống mức tối thiểu.
+    Ngưỡng nâng dần 250→300→350MB: baseline riêng Reflex+Caddy+Python trên
+    Render free/starter (512MB container) đã chiếm phần lớn RAM, nên biên an
+    toàn phải rộng để không bị OOM-kill (status 137) giữa batch."""
     mb = available_memory_mb()
-    return 0 <= mb <= 300
+    return 0 <= mb <= 350
 
 
 # ══════════════════════════════════════════════════════════════
