@@ -120,3 +120,4 @@ COPY Caddyfile /app/Caddyfile
 # (không phải lúc docker build) nên request đầu tiên sau khi container khởi
 # động / thức dậy (free tier) có thể chậm hơn bình thường vài chục giây.
 CMD ["sh", "-c", "reflex run --env prod --backend-only --backend-host 0.0.0.0 --backend-port 8000 --loglevel debug & caddy run --config /app/Caddyfile --adapter caddyfile"]
+
