@@ -10,7 +10,7 @@ import warnings
 from pathlib import Path
 from typing import Optional
 
-from PIL import Image, ImageFile, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageFile, ImageFilter, ImageOps, UnidentifiedImageError
 
 from .memory import MAX_IMAGE_PIXELS_SAFE
 from .types import ErrorType
@@ -200,6 +200,16 @@ def _fit_size(src_w: int, src_h: int, dst_w: int, dst_h: int) -> tuple[int, int]
     return max(int(dst_h * r_src), 1), dst_h
 
 
+# Cho phép phóng to tối đa 60% so với ảnh gốc để lấp khung tốt hơn khi
+# ảnh gốc nhỏ hơn canvas nhiều — tránh ảnh bị co nhỏ giữa viền trắng rất to
+# (nhìn khó chịu). 1.6x với LANCZOS + unsharp nhẹ vẫn giữ được độ nét ở mức
+# chấp nhận được cho ảnh sản phẩm; không phóng vô hạn để tránh vỡ nét.
+MAX_SAFE_UPSCALE = 1.6
+# Nếu ảnh fit tự nhiên đã choán ≥ tỉ lệ này của khung thì không cần phóng
+# thêm (đã đủ to, tránh phóng ảnh vốn đã gần vừa khung).
+FILL_OK_RATIO = 0.94
+
+
 def resize_letterbox(
     src_path: Path,
     out_path: Path,
@@ -212,24 +222,43 @@ def resize_letterbox(
     huge_mode: bool = True,
 ) -> tuple[bool, Optional[ErrorType], str]:
     """
-    Fit ảnh vào canvas W×H với nền trắng. Nếu ảnh nhỏ hơn target và
-    no_upscale=True → không phóng, đặt giữa canvas.
+    Fit ảnh vào canvas W×H với nền trắng. Nếu ảnh nhỏ hơn target, thay vì
+    chặn phóng to hoàn toàn (khiến ảnh bé tí giữa viền trắng rất to), cho
+    phép phóng có kiểm soát tối đa MAX_SAFE_UPSCALE lần để ảnh choán khung
+    tốt hơn — vẫn không phóng vượt quá mức đó để giữ độ nét.
     """
     try:
         with open_prepared(src_path, (width, height), huge_mode) as img:
             factor = max(int(scale_pct), 1) / 100.0
 
             fit_w, fit_h = _fit_size(img.width, img.height, width, height)
-
-            new_w = max(int(fit_w * factor), 1)
-            new_h = max(int(fit_h * factor), 1)
+            was_upscaled = False
 
             if no_upscale:
-                # Không cho phóng vượt kích thước gốc
-                new_w = min(new_w, img.width)
-                new_h = min(new_h, img.height)
+                # Tỉ lệ cần phóng để ảnh fit vừa khung (giữ tỉ lệ khung hình
+                # gốc, do _fit_size đã tính theo đúng aspect ratio).
+                fit_scale = fit_w / max(img.width, 1)
+                if fit_scale > 1.0 and fit_scale > FILL_OK_RATIO:
+                    # Ảnh gốc nhỏ hơn khung khá nhiều → phóng có kiểm soát
+                    # thay vì giữ nguyên kích thước gốc.
+                    allowed_scale = min(fit_scale, MAX_SAFE_UPSCALE)
+                    new_w = max(int(img.width * allowed_scale * factor), 1)
+                    new_h = max(int(img.height * allowed_scale * factor), 1)
+                    was_upscaled = allowed_scale > 1.0
+                else:
+                    new_w = max(int(min(fit_w, img.width) * factor), 1)
+                    new_h = max(int(min(fit_h, img.height) * factor), 1)
+            else:
+                new_w = max(int(fit_w * factor), 1)
+                new_h = max(int(fit_h * factor), 1)
 
             resized = img.resize((new_w, new_h), _get_resample())
+            if was_upscaled:
+                # Bù lại độ mềm do phóng to bằng unsharp nhẹ — giữ cảm giác
+                # "đủ nét" thay vì mờ nhòe.
+                resized = resized.filter(
+                    ImageFilter.UnsharpMask(radius=1.4, percent=60, threshold=2)
+                )
             canvas = Image.new("RGB", (width, height), (255, 255, 255))
 
             paste_x = max(0, (width - resized.width) // 2)
@@ -286,8 +315,26 @@ def resize_square_crop(
                     cropped = cropped.resize((target, target), _get_resample())
                 final = cropped
             else:
+                # Ảnh nhỏ hơn khung vuông → phóng có kiểm soát (như
+                # resize_letterbox) để lấp khung tốt hơn thay vì để nguyên
+                # ảnh bé giữa nền trắng rất to.
+                side = max(w, h)
+                fit_scale = target / max(side, 1)
+                allowed_scale = min(fit_scale, MAX_SAFE_UPSCALE) if fit_scale > FILL_OK_RATIO else 1.0
+                if allowed_scale > 1.0:
+                    new_w = max(int(w * allowed_scale), 1)
+                    new_h = max(int(h * allowed_scale), 1)
+                    scaled = img.resize((new_w, new_h), _get_resample())
+                    scaled = scaled.filter(
+                        ImageFilter.UnsharpMask(radius=1.4, percent=60, threshold=2)
+                    )
+                    w, h = new_w, new_h
+                else:
+                    scaled = img
                 final = Image.new("RGB", (target, target), (255, 255, 255))
-                final.paste(img, ((target - w) // 2, (target - h) // 2))
+                final.paste(scaled, ((target - w) // 2, (target - h) // 2))
+                if scaled is not img:
+                    scaled.close()
 
             save_output(final, out_path, quality, export_format)
             final.close()
