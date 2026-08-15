@@ -54,13 +54,13 @@ ENV PYTHONUNBUFFERED=1
 # thiếu hẳn node_modules/.bin. Danh sách gói chính xác đã thấy lặp lại
 # nhiều lần ở các build cài đủ, nên tự cài THẲNG bằng bun, không phụ thuộc
 # Reflex quyết định có cài hay không.
-RUN reflex init --loglevel debug
-# `reflex export` tự "Compile pages" (Python -> app/root.tsx và các file
-# react khác) TRƯỚC khi cài gói/build — bước compile này KHÔNG xảy ra nếu
-# chỉ gọi `reflex init`. Thiếu nó thì `react-router build` báo "Could not
-# find a root route module in app/root.tsx". Nên chạy `reflex export` cho
-# nó tự compile + cài gói (bỏ qua crash ở bước cuối "bun run export"),
-# RỒI mới tự cài bù devDependencies còn thiếu + tự build bằng bun x.
+# QUAN TRỌNG: gọi `reflex init` RIÊNG trước `reflex export` làm `reflex
+# export` tưởng .web đã sẵn sàng (dựa vào project hash) nên BỎ QUA bước
+# "Compile pages" thật -> .web/app/ trống trơn, chỉ có mỗi
+# react-router.config.js -> react-router build báo thiếu app/root.tsx.
+# Fix: KHÔNG gọi reflex init riêng nữa — để reflex export tự làm từ đầu
+# (.web chưa tồn tại), giống hệt luồng đã từng compile thành công (12 route
+# files) khi trước đây gọi qua `reflex run --env prod` từ trạng thái sạch.
 RUN reflex export --frontend-only --no-zip --loglevel debug || true
 RUN echo "=== .web top-level after export attempt ===" \
  && find .web -maxdepth 2 -not -path "*/node_modules*" \
