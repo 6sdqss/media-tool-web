@@ -74,8 +74,10 @@ RUN echo "=== reflex_base template app/ dir (nguồn copy vào .web/app) ===" \
  && cat .web/react-router.config.js 2>&1 \
  && echo "=== reflex_base .templates/web/*.js (root-level config templates) ===" \
  && find /usr/local/lib/python3.12/site-packages/reflex_base/.templates/web -maxdepth 1 -type f \
- && echo "=== search reflex_base source for how export/build is invoked ===" \
- && grep -rn "bun run\|vite build\|react-router build\|frontend_export\|def export" /usr/local/lib/python3.12/site-packages/reflex_base/*.py 2>&1 | grep -i "export\|build" | head -40
+ && echo "=== search reflex_base source for root.tsx codegen ===" \
+ && grep -rln "root.tsx" /usr/local/lib/python3.12/site-packages/reflex_base/*.py 2>&1 \
+ && echo "=== context around root.tsx references ===" \
+ && grep -rn -B3 -A15 "root\.tsx" /usr/local/lib/python3.12/site-packages/reflex_base/app.py 2>&1 | head -100
 RUN echo "=== .web top-level after export attempt ===" \
  && find .web -maxdepth 2 -not -path "*/node_modules*" \
  && echo "=== react-router.config.js ===" \
