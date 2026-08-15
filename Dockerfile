@@ -24,7 +24,9 @@ ENV PYTHONUNBUFFERED=1
 # st_compat.py (không còn os.chdir() làm lệch cwd giữa lúc Reflex đang ghi
 # .web/app/root.jsx) — giờ `reflex export` chạy sạch, không cần hack/retry.
 RUN reflex export --frontend-only --no-zip --loglevel debug
-RUN echo "=== .web/app sau export (phải có root.jsx) ===" && find .web/app -type f
+RUN echo "=== .web/app sau export (phải có root.jsx) ===" && find .web/app -type f \
+ && echo "=== .web/build/client (Caddy sẽ serve trực tiếp từ đây) ===" \
+ && find .web/build/client -maxdepth 2 2>&1 | head -30
 
 COPY Caddyfile /app/Caddyfile
 
