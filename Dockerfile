@@ -74,10 +74,12 @@ RUN echo "=== reflex_base template app/ dir (nguồn copy vào .web/app) ===" \
  && cat .web/react-router.config.js 2>&1 \
  && echo "=== reflex_base .templates/web/*.js (root-level config templates) ===" \
  && find /usr/local/lib/python3.12/site-packages/reflex_base/.templates/web -maxdepth 1 -type f \
- && echo "=== search reflex_base source for root.tsx codegen ===" \
- && grep -rln "root.tsx" /usr/local/lib/python3.12/site-packages/reflex_base/*.py 2>&1 \
- && echo "=== context around root.tsx references ===" \
- && grep -rn -B3 -A15 "root\.tsx" /usr/local/lib/python3.12/site-packages/reflex_base/app.py 2>&1 | head -100
+ && echo "=== search ALL reflex packages for root.tsx codegen (recursive) ===" \
+ && (grep -rln "root.tsx" /usr/local/lib/python3.12/site-packages/reflex* 2>&1 || echo "NO MATCHES for root.tsx") \
+ && echo "=== search for export()/compile-related functions mentioning bun ===" \
+ && (grep -rln "\"export\"" /usr/local/lib/python3.12/site-packages/reflex_base 2>&1 || echo "NO MATCHES for export string") \
+ && echo "=== list reflex_base top-level files ===" \
+ && find /usr/local/lib/python3.12/site-packages/reflex_base -maxdepth 1
 RUN echo "=== .web top-level after export attempt ===" \
  && find .web -maxdepth 2 -not -path "*/node_modules*" \
  && echo "=== react-router.config.js ===" \
