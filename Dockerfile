@@ -1,3 +1,4 @@
+# Dockerfile — build & chạy Media Tool Pro (Reflex) cho Render.
 FROM python:3.12-slim
 
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
@@ -15,14 +16,19 @@ ARG API_URL
 ENV API_URL=${API_URL}
 ENV PYTHONUNBUFFERED=1
 
-# DEBUG: chạy export, KHÔNG để build fail sớm — in ra package.json thật +
-# nội dung .web/app để biết chính xác "export" script bị mất ở bước nào.
-RUN reflex export --frontend-only --no-zip --loglevel debug; \
-    echo "EXPORT_EXIT_CODE=$?"; \
-    echo "=== .web/package.json ==="; cat .web/package.json 2>&1; \
-    echo "=== .web/app files ==="; find .web/app -type f 2>&1; \
-    echo "=== root package.json (persisted) ==="; cat package.json 2>&1 || echo "(no root package.json)"; \
-    echo "=== reflex.lock dir ==="; find reflex.lock -type f 2>&1 || echo "(no reflex.lock)"
+# `reflex export` tự nó bị lỗi "Script not found export" ở đúng bước cuối
+# (bun run export) dù .web/package.json thực tế CÓ đủ script này (đã xác
+# minh bằng cách in file ra ngay sau khi lệnh fail) -> đây là race condition/
+# bug nội bộ của Reflex 0.9.8 (bun đọc package.json trước khi ghi xong, hoặc
+# workspace resolution nhầm). Vì .web/package.json và reflex.lock/package.json
+# đã đúng ngay sau khi export "fail", ta chỉ cần chạy lại đúng lệnh build đó
+# một lần nữa thủ công -> chạy trên state đĩa đã ổn định -> thành công.
+RUN (reflex export --frontend-only --no-zip --loglevel debug || true) \
+ && echo "=== retry: bun run export thủ công trên .web/package.json đã ổn định ===" \
+ && cd .web \
+ && /root/.local/share/reflex/bun/bin/bun run export \
+ && echo "=== build output ===" \
+ && find build -maxdepth 3 2>&1 | head -50
 
 COPY Caddyfile /app/Caddyfile
 
