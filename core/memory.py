@@ -31,12 +31,11 @@ RESIZE_WORKERS_MAX = 4
 # ══════════════════════════════════════════════════════════════
 # RAM
 # ══════════════════════════════════════════════════════════════
-def available_memory_mb() -> float:
-    """
-    Lấy RAM còn trống (MB). Trả -1 nếu không đọc được (ví dụ Windows dev).
-    Ưu tiên /proc/meminfo (Linux/Streamlit Cloud), fallback psutil nếu có.
-    """
-    # Linux: /proc/meminfo
+def _host_available_mb() -> float:
+    """RAM còn trống theo /proc/meminfo — đây là RAM của HOST, không phải
+    của container. Trong Docker (Render...) con số này thường lớn hơn nhiều
+    so với giới hạn thật (cgroup), vì kernel host có nhiều RAM hơn container
+    được cấp."""
     try:
         with open("/proc/meminfo", "r") as f:
             info = {}
@@ -44,14 +43,11 @@ def available_memory_mb() -> float:
                 parts = line.split(":")
                 if len(parts) == 2:
                     info[parts[0].strip()] = parts[1].strip()
-        # MemAvailable là số kB thực dụng nhất
         avail_kb = info.get("MemAvailable", "").split()
         if avail_kb:
             return int(avail_kb[0]) / 1024.0
     except Exception:
         pass
-
-    # psutil fallback
     try:
         import psutil  # type: ignore
         return psutil.virtual_memory().available / (1024 * 1024)
@@ -59,10 +55,66 @@ def available_memory_mb() -> float:
         return -1.0
 
 
+def _cgroup_available_mb() -> float:
+    """RAM còn trống THEO GIỚI HẠN CONTAINER (cgroup) — con số đúng khi chạy
+    trên Render/Docker. Nếu không đọc được (dev máy thường, không phải
+    container) → trả -1 để caller bỏ qua.
+
+    Hỗ trợ cả cgroup v2 (memory.max/memory.current) và v1
+    (memory.limit_in_bytes/memory.usage_in_bytes). Nếu limit là "max"
+    (không giới hạn) hoặc lớn bất thường (>16GB, rõ ràng không phải giới
+    hạn container thật) → coi như không có cgroup limit, trả -1.
+    """
+    HUGE = 16 * 1024 * 1024 * 1024  # 16GB — ngưỡng coi là "unlimited"
+    try:
+        # cgroup v2
+        max_p = Path("/sys/fs/cgroup/memory.max")
+        cur_p = Path("/sys/fs/cgroup/memory.current")
+        if max_p.exists() and cur_p.exists():
+            raw_max = max_p.read_text().strip()
+            if raw_max != "max":
+                limit = int(raw_max)
+                if 0 < limit < HUGE:
+                    used = int(cur_p.read_text().strip())
+                    return max(0.0, (limit - used) / (1024 * 1024))
+    except Exception:
+        pass
+    try:
+        # cgroup v1
+        lim_p = Path("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+        use_p = Path("/sys/fs/cgroup/memory/memory.usage_in_bytes")
+        if lim_p.exists() and use_p.exists():
+            limit = int(lim_p.read_text().strip())
+            if 0 < limit < HUGE:
+                used = int(use_p.read_text().strip())
+                return max(0.0, (limit - used) / (1024 * 1024))
+    except Exception:
+        pass
+    return -1.0
+
+
+def available_memory_mb() -> float:
+    """
+    Lấy RAM còn trống (MB) — LẤY MIN giữa host (/proc/meminfo) và giới hạn
+    container thật (cgroup), vì trong Docker (Render free = 512MB) host
+    thường báo RAM dư dả trong khi container sắp OOM. Trả -1 nếu không đọc
+    được cả hai (ví dụ Windows dev).
+    """
+    host_mb = _host_available_mb()
+    cgroup_mb = _cgroup_available_mb()
+    if cgroup_mb >= 0 and host_mb >= 0:
+        return min(host_mb, cgroup_mb)
+    if cgroup_mb >= 0:
+        return cgroup_mb
+    return host_mb
+
+
 def memory_pressure_high() -> bool:
-    """True nếu RAM còn ≤ 250MB — phải giảm concurrency."""
+    """True nếu RAM còn ≤ 300MB — phải giảm concurrency.
+    Ngưỡng nâng từ 250→300MB vì trên Render free (cgroup 512MB) cần biên an
+    toàn lớn hơn để tránh bị OOM-kill làm mất toàn bộ batch/session đang chạy."""
     mb = available_memory_mb()
-    return 0 <= mb <= 250
+    return 0 <= mb <= 300
 
 
 # ══════════════════════════════════════════════════════════════

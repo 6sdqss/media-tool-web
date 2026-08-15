@@ -300,7 +300,11 @@ class BatchManager:
 
                     done_counter += 1
                     _bg_refresh_counters(bi, items)
-                    if done_counter % 8 == 0:
+                    # GC dày hơn khi RAM đang căng (container nhỏ như Render
+                    # free 512MB) để tránh tích luỹ rác giữa các item, gây
+                    # OOM-kill làm mất cả batch đang chạy.
+                    gc_every = 3 if memory.memory_pressure_high() else 8
+                    if done_counter % gc_every == 0:
                         gc.collect()
 
             _bg_refresh_counters(bi, items)
